@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { SchedulingAppointmentType, SchedulingResource } from '@/lib/scheduling/types';
@@ -8,6 +8,14 @@ import { BookingForm } from '@/components/scheduling/booking-form/booking-form';
 import { linkBookingToProgress } from '@/lib/journey/actions';
 
 export default function NewBookingPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-sm text-gray-500">Loading…</div>}>
+      <NewBookingPageInner />
+    </Suspense>
+  );
+}
+
+function NewBookingPageInner() {
   const router = useRouter();
   const params = useSearchParams();
   const presetTypeId = params.get('type');
