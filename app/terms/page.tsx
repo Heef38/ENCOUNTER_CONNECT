@@ -10,8 +10,7 @@ export const metadata: Metadata = {
 const EFFECTIVE_DATE = 'May 27, 2026';
 const CONTACT_EMAIL = 'dev@encounterthelord.com';
 const SITE_URL = 'https://encounter-connect.app';
-// TODO: set the governing-law jurisdiction (state/country) for your organization.
-const GOVERNING_LAW = 'the State of [your state]';
+const GOVERNING_LAW = 'the State of Texas';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
