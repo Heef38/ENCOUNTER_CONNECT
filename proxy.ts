@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { refreshSession } from '@/lib/supabase/proxy';
 
 // Paths that anonymous visitors are always allowed to reach.
-const PUBLIC_PATHS = ['/', '/auth/callback', '/signup'];
+const PUBLIC_PATHS = ['/', '/auth/callback', '/signup', '/privacy', '/terms'];
 
 export async function proxy(request: NextRequest) {
   const { response, user } = await refreshSession(request);

@@ -1,6 +1,12 @@
 # Encounter Connect — Project Status
 
-**Last updated:** 2026-03-24
+**Last updated:** 2026-05-27
+
+> The phase-by-phase history below (Phases 1–5) dates from the initial
+> SchedulingCore → EC build. Everything since — auth, multi-tenancy,
+> content model, notifications, public signup, the connector platform,
+> and more — is summarized under **"Since the initial build"** before the
+> phase log. See the project memory for the full per-feature change record.
 
 ---
 
@@ -92,37 +98,56 @@ Encounter Connect (new, layered on top)
 
 ---
 
-## In Progress
+## Since the initial build ✅
 
-- [ ] Participant → Flow assignment UI (assign a flow to a participant from their detail page)
-- [ ] Campus selector on participant creation form (requires server-side campus list)
-- [ ] Connector assignment UI (assign connector directly from participant detail)
+Delivered after the Phase 1–5 log below (migrations 005–016):
+
+- **Phase 8 — Auth & multi-tenancy** — Supabase Auth + SSR, `proxy.ts` session
+  refresh and route gating, role-aware landing. Full multi-tenancy: `churches`
+  root, `church_id` on every EC table, `is_platform_admin`, RLS helpers.
+- **Phase 9 — Content data model** — lessons, assessments (definitions /
+  questions / responses / results + scoring & categories), serve teams,
+  connect docs, audit log.
+- **Participant journey** — `/journey` with phases, concurrent steps, and
+  per-step renderers (video / assessment / schedule / event / manual).
+- **Notifications** — outbox + templates, Resend (email) and Twilio (SMS)
+  adapters, stale-reminder + step-completion + booking notices, cron drain.
+- **Public signup** — `/signup` church picker → `/c/[church]/[campus]`,
+  self-service participant registration.
+- **Connector platform** — `/connector` home, per-participant journey view,
+  auto-match best-fit connector with load balancing, booking confirm/decline.
+- **Platform admin** — tenant onboarding (`/platform/churches`), church
+  branding, campus landing pages, test-data harness.
+- **Signup → flow auto-enrollment** (2026-05-27) — new signups are now
+  enrolled in their campus default flow (falling back to the church-wide
+  default), with progress rows initialized and `current_step_id` set. Closes
+  the long-standing gap where signups had empty journeys.
 
 ---
 
-## Next Steps
+## Open items
 
-### Near Term
-- [ ] `POST /api/participants/[id]/assign-flow` — trigger `initializeParticipantProgress`
-- [ ] Progress update actions on participant detail page (mark step complete)
-- [ ] Campus filter on participant list (server-side dropdown)
-- [ ] Connector assignment modal on participant detail
-- [ ] Mobile-first responsive audit of all EC pages
+### Near term
+- [ ] **Notifications on the manual booking path** — `/scheduling/new-booking`
+      (manual) doesn't enqueue notifications; only auto-match and connector
+      confirm/decline do.
+- [ ] **Connect default flows to live churches** — auto-enrollment only fires
+      when a church/campus has an active `is_default` flow with steps. Audit
+      existing tenants and set defaults where missing.
+- [ ] Mobile-first responsive audit of all EC pages.
 
-### Phase 6 — Notifications
-- [ ] Wire reminder delivery to a real email adapter (Postmark / SendGrid)
-- [ ] Connector notification when a participant is assigned
-- [ ] Participant notification when a meeting is booked
-
-### Phase 7 — Reporting
+### Reporting (not started)
 - [ ] Campus dashboard: flow completion rates, connector activity
 - [ ] Export participant progress as CSV
-- [ ] Connector load balancing view (which connectors have capacity)
+- [ ] Connector load-balancing / capacity view
 
-### Phase 8 — Auth & Onboarding
-- [ ] Auth sign-in flow with Supabase Auth
-- [ ] Auto-create `profiles` record on auth.users insert (trigger or hook)
-- [ ] Participant self-service onboarding (public-facing form to register)
+### Launch checklist
+- [ ] Magic-link auth alongside passwords (lower friction for members)
+- [ ] Supabase Storage buckets + RLS for connect_docs / lesson media / logos
+- [ ] Cron wired to `api/scheduling/process-reminders` + notification drain
+- [ ] Sentry (or equivalent) error monitoring
+- [ ] Dev / staging / prod Supabase project separation
+- [ ] Test harness Option B (separate Supabase staging project)
 
 ---
 

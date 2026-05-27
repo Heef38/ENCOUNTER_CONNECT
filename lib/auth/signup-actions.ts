@@ -5,6 +5,10 @@ import {
   createServiceRoleClient,
 } from '@/lib/supabase/server';
 import { recordAudit } from '@/lib/audit/log';
+import {
+  initializeParticipantProgress,
+  resolveDefaultFlowId,
+} from '@/lib/flows/engine';
 
 export interface SignupResult {
   ok: boolean;
@@ -108,19 +112,61 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
   }
 
   // Create participants row, linked to this profile, scoped to church + campus.
-  const { error: participantError } = await admin.from('participants').insert({
-    church_id: args.churchId,
-    campus_id: args.campusId,
-    profile_id: user.id,
-    first_name: firstName,
-    last_name: lastName,
-    email,
-    status: 'new',
-    signed_up_at: new Date().toISOString(),
-  });
+  const { data: participantRow, error: participantError } = await admin
+    .from('participants')
+    .insert({
+      church_id: args.churchId,
+      campus_id: args.campusId,
+      profile_id: user.id,
+      first_name: firstName,
+      last_name: lastName,
+      email,
+      status: 'new',
+      signed_up_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
 
-  if (participantError) {
-    return { ok: false, error: participantError.message };
+  if (participantError || !participantRow) {
+    return { ok: false, error: participantError?.message ?? 'Could not create participant.' };
+  }
+
+  // Enroll the participant in their default flow so their journey isn't
+  // empty on first login. The campus default wins over the church-wide
+  // default; absent either, the journey stays empty and staff can enroll
+  // later. Best-effort: enrollment must never fail the signup itself.
+  try {
+    const flowId = await resolveDefaultFlowId(admin, args.churchId, args.campusId);
+    if (flowId) {
+      const init = await initializeParticipantProgress(admin, participantRow.id, flowId);
+      if (init.success) {
+        // Point the denormalized current_step_id at the first active step,
+        // matching the convention completeStepAndAdvance maintains.
+        const { data: firstStep } = await admin
+          .from('flow_steps')
+          .select('id')
+          .eq('flow_id', flowId)
+          .order('phase_index')
+          .order('order_index')
+          .limit(1)
+          .maybeSingle();
+        if (firstStep) {
+          await admin
+            .from('participants')
+            .update({ current_step_id: firstStep.id })
+            .eq('id', participantRow.id);
+        }
+        await recordAudit({
+          action: 'participant.enrolled_in_flow',
+          entity_type: 'participant',
+          entity_id: participantRow.id,
+          metadata: { flow_id: flowId, church_id: args.churchId, campus_id: args.campusId },
+        });
+      }
+    }
+  } catch {
+    // Swallow — flow enrollment is recoverable by staff and must not
+    // block account creation.
   }
 
   await recordAudit({

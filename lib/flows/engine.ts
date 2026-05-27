@@ -58,6 +58,56 @@ export async function initializeParticipantProgress(
   return { success: true, data: (data ?? []) as ParticipantProgress[] };
 }
 
+// ── Default Flow Resolution ───────────────────────────────────
+
+/**
+ * Picks the flow a brand-new participant should be enrolled in: the
+ * campus's default flow when one exists, otherwise the church-wide
+ * default. Only active flows that actually have steps qualify — a
+ * default flow with no steps would create empty progress.
+ *
+ * Returns null when the church has no usable default configured. Callers
+ * should treat that as "leave the journey empty for now" rather than an
+ * error: signup must still succeed, and staff can enroll later.
+ */
+export async function resolveDefaultFlowId(
+  supabase: SupabaseClient,
+  churchId: string,
+  campusId: string | null,
+): Promise<string | null> {
+  let query = supabase
+    .from('flows')
+    .select('id, campus_id')
+    .eq('church_id', churchId)
+    .eq('is_default', true)
+    .eq('is_active', true);
+
+  // A campus signup can match either its own campus default or the
+  // church-wide (campus_id null) default; a church-wide signup only the latter.
+  query = campusId
+    ? query.or(`campus_id.eq.${campusId},campus_id.is.null`)
+    : query.is('campus_id', null);
+
+  const { data: flows, error } = await query;
+  if (error || !flows || flows.length === 0) return null;
+
+  // Prefer a campus-specific default over the church-wide fallback.
+  const ranked = [...flows].sort(
+    (a, b) =>
+      (a.campus_id === campusId ? 0 : 1) - (b.campus_id === campusId ? 0 : 1),
+  );
+
+  for (const flow of ranked) {
+    const { count } = await supabase
+      .from('flow_steps')
+      .select('id', { count: 'exact', head: true })
+      .eq('flow_id', flow.id);
+    if ((count ?? 0) > 0) return flow.id;
+  }
+
+  return null;
+}
+
 // ── Current Step ──────────────────────────────────────────────
 
 /**
