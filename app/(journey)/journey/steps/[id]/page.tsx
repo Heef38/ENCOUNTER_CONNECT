@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { Video, ExternalLink, CalendarDays, ArrowRight } from 'lucide-react';
+import { Video, ExternalLink, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/dal';
 import {
   createServerSupabaseClient,
@@ -16,7 +16,6 @@ import {
 import {
   loadParticipantJourney,
   orderedProgress,
-  resolveNextProgressId,
 } from '@/lib/journey/queries';
 import { CompleteStepButton } from './complete-step-button';
 import { VideoEmbed } from './video-embed';
@@ -108,12 +107,15 @@ export default async function JourneyStepPage({
   const { flow_step: step } = progress;
   const isComplete = progress.status === 'completed';
 
-  // Navigation context: where "continue" goes after this step.
+  // Navigation context: positional prev/next so the participant can move
+  // back and forth to review any step.
   const journey = await loadParticipantJourney(supabase, session.id);
   const ordered = journey ? orderedProgress(journey) : [];
-  const nextId = resolveNextProgressId(ordered, id);
-  const nextHref = nextId ? `/journey/steps/${nextId}` : '/journey';
-  const isLast = !nextId;
+  const total = ordered.length;
+  const idx = ordered.findIndex((s) => s.id === id);
+  const prevId = idx > 0 ? ordered[idx - 1].id : null;
+  const nextId = idx >= 0 && idx < total - 1 ? ordered[idx + 1].id : null;
+  const stepNumber = idx >= 0 ? idx + 1 : 1;
 
   // ── Per-type extras ──────────────────────────────────────────
   type Booking = { id: string; starts_at: string; status: string };
@@ -219,11 +221,6 @@ export default async function JourneyStepPage({
     }
     return submitAssessment(id, assessmentDefinition.id, step.assessment_kind, formData);
   }
-
-  // Whether the sticky footer renders a primary advance control. The
-  // assessment form owns its own submit, so it opts out while incomplete.
-  const assessmentInProgress =
-    step.step_type === 'assessment' && !isComplete && !!assessmentDefinition && assessmentQuestions.length > 0;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -372,34 +369,71 @@ export default async function JourneyStepPage({
                 existingResponses={Object.fromEntries(existingResponses.entries())}
                 action={submitAction}
                 isComplete={isComplete}
-                nextHref={nextHref}
               />
             )}
           </>
         )}
       </div>
 
-      {/* Sticky advance control */}
-      {!assessmentInProgress && (
-        <div className="sticky bottom-0 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
-          {isComplete ? (
-            <Link href={nextHref}>
-              <Button size="lg" variant={isLast ? 'primary' : 'secondary'} className="w-full">
-                {isLast ? 'Finish' : 'Continue'}
-                <ArrowRight className="h-4 w-4" />
-              </Button>
+      {/* Sticky nav: ← previous · action · next → */}
+      <div className="sticky bottom-0 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
+        <div className="flex items-center justify-between gap-3">
+          {prevId ? (
+            <Link
+              href={`/journey/steps/${prevId}`}
+              aria-label="Previous step"
+              className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border border-border text-foreground transition hover:bg-surface-muted"
+            >
+              <ChevronLeft className="h-5 w-5" />
             </Link>
-          ) : step.step_type === 'event' ? (
-            <CompleteStepButton action={attendAction} label="Mark attended" nextHref={nextHref} />
-          ) : step.step_type === 'video' ? (
-            <CompleteStepButton action={completeAction} label="I've watched these" nextHref={nextHref} />
-          ) : step.step_type === 'schedule' ? (
-            <CompleteStepButton action={completeAction} label="I've completed this" nextHref={nextHref} />
-          ) : step.step_type === 'manual' || step.step_type === 'conversation' ? (
-            <CompleteStepButton action={completeAction} label="Mark complete" nextHref={nextHref} />
-          ) : null}
+          ) : (
+            <span
+              aria-hidden
+              className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border border-border text-foreground-subtle opacity-30"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </span>
+          )}
+
+          <div className="flex flex-1 items-center justify-center px-1">
+            {isComplete ? (
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-success">
+                <CheckCircle2 className="h-4 w-4" />
+                Completed
+              </span>
+            ) : step.step_type === 'event' ? (
+              <CompleteStepButton action={attendAction} label="Mark attended" />
+            ) : step.step_type === 'video' ? (
+              <CompleteStepButton action={completeAction} label="I've watched these" />
+            ) : step.step_type === 'schedule' ? (
+              <CompleteStepButton action={completeAction} label="I've completed this" />
+            ) : step.step_type === 'manual' || step.step_type === 'conversation' ? (
+              <CompleteStepButton action={completeAction} label="Mark complete" />
+            ) : (
+              <span className="text-xs text-foreground-subtle">
+                {stepNumber} of {total}
+              </span>
+            )}
+          </div>
+
+          {nextId ? (
+            <Link
+              href={`/journey/steps/${nextId}`}
+              aria-label="Next step"
+              className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border border-border text-foreground transition hover:bg-surface-muted"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </Link>
+          ) : (
+            <span
+              aria-hidden
+              className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border border-border text-foreground-subtle opacity-30"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </span>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

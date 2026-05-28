@@ -1,8 +1,7 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,8 +13,6 @@ interface Props {
   existingResponses: Record<string, unknown>;
   action: (prev: ActionResult | null, formData: FormData) => Promise<ActionResult>;
   isComplete: boolean;
-  /** Where to go after the assessment is submitted. */
-  nextHref: string;
 }
 
 export function AssessmentForm({
@@ -23,26 +20,18 @@ export function AssessmentForm({
   existingResponses,
   action,
   isComplete,
-  nextHref,
 }: Props) {
   const router = useRouter();
-  const [submitted, setSubmitted] = useState(false);
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
-    async (prev, formData) => action(prev, formData),
+    async (prev, formData) => {
+      const result = await action(prev, formData);
+      // Refresh in place so the page re-renders with the scored results; the
+      // participant then advances with the next-step arrow.
+      if (result.ok) router.refresh();
+      return result;
+    },
     null,
   );
-
-  // On a successful submit, show a brief confirmation, then flow to the next step.
-  useEffect(() => {
-    if (state?.ok && !submitted) {
-      setSubmitted(true);
-      const t = setTimeout(() => {
-        router.push(nextHref);
-        router.refresh();
-      }, 850);
-      return () => clearTimeout(t);
-    }
-  }, [state, submitted, nextHref, router]);
 
   return (
     <form action={formAction} className="space-y-6">
@@ -193,20 +182,8 @@ export function AssessmentForm({
       )}
 
       {!isComplete && (
-        <Button type="submit" size="lg" className="w-full" disabled={pending || submitted}>
-          {submitted ? (
-            <>
-              <Check className="h-4 w-4" />
-              Submitted!
-            </>
-          ) : pending ? (
-            'Submitting…'
-          ) : (
-            <>
-              Submit &amp; continue
-              <ArrowRight className="h-4 w-4" />
-            </>
-          )}
+        <Button type="submit" size="lg" className="w-full" disabled={pending}>
+          {pending ? 'Submitting…' : 'Submit assessment'}
         </Button>
       )}
     </form>
