@@ -6,8 +6,10 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 export type NavGroupKey = 'platform' | 'admin' | 'connector' | 'participant';
 
 export interface NavItem {
-  href: string;
+  href?: string;
   label: string;
+  /** When present, this item is a dropdown of sub-links instead of a link. */
+  children?: NavItem[];
 }
 
 export interface NavGroup {
@@ -21,15 +23,13 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-const ADMIN_BASE: NavItem[] = [
-  { href: '/dashboard',    label: 'Dashboard' },
-  { href: '/appointments', label: 'Appointments' },
-  { href: '/people',       label: 'People' },
-  { href: '/flows',        label: 'Flows' },
+// The "Journey" dropdown groups the content that makes up a participant's journey.
+const JOURNEY_CHILDREN: NavItem[] = [
+  { href: '/settings/connect-docs',     label: 'Connect Docs' },
+  { href: '/settings/lessons',          label: 'Lessons' },
+  { href: '/settings/appointment-types', label: 'Appointment Types' },
+  { href: '/settings/assessments',      label: 'Assessments' },
 ];
-
-const CAMPUS_ADMIN_EXTRA: NavItem[] = [{ href: '/audit', label: 'Audit log' }];
-const CHURCH_ADMIN_EXTRA: NavItem[] = [{ href: '/settings', label: 'Settings' }];
 
 /**
  * Builds the role-grouped nav for a session. Each group the user is
@@ -57,11 +57,15 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
   }
 
   if (isCampusAdmin) {
-    const items = [
-      ...ADMIN_BASE,
-      ...(isCampusAdmin ? CAMPUS_ADMIN_EXTRA : []),
-      ...(isChurchAdmin ? CHURCH_ADMIN_EXTRA : []),
+    const items: NavItem[] = [
+      { href: '/dashboard',        label: 'Dashboard' },
+      { href: '/people',           label: 'People' },
+      { href: '/appointments',     label: 'Appointments' },
+      { label: 'Journey',          children: JOURNEY_CHILDREN },
+      { href: '/settings/campuses', label: 'Campuses' },
     ];
+    // Settings hub (the home for everything else) is church-admin only.
+    if (isChurchAdmin) items.push({ href: '/settings', label: 'Settings' });
     groups.push({
       key: 'admin',
       label: 'Admin',

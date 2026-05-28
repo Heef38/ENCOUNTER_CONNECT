@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from 'react';
 import Link from 'next/link';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
@@ -10,8 +10,9 @@ import { SignOutButton } from '@/components/auth/sign-out-button';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 
 export interface NavItem {
-  href: string;
+  href?: string;
   label: string;
+  children?: NavItem[];
 }
 
 export interface NavGroupRender {
@@ -67,9 +68,13 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
               {gi > 0 && (
                 <span aria-hidden className="px-1 text-foreground-subtle">|</span>
               )}
-              {group.items.map((item) => (
-                <NavLink key={item.href} item={item} />
-              ))}
+              {group.items.map((item) =>
+                item.children ? (
+                  <NavDropdown key={item.label} item={item} />
+                ) : (
+                  <NavLink key={item.href ?? item.label} item={item} />
+                ),
+              )}
             </Fragment>
           ))}
         </nav>
@@ -131,16 +136,34 @@ function MobileGroup({
         {group.label}
       </span>
       <div className="flex flex-col gap-0.5">
-        {group.items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className="rounded-md px-3 py-2 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
-          >
-            {item.label}
-          </Link>
-        ))}
+        {group.items.map((item) =>
+          item.children ? (
+            <div key={item.label}>
+              <p className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-wide text-foreground-subtle">
+                {item.label}
+              </p>
+              {item.children.map((c) => (
+                <Link
+                  key={c.href ?? c.label}
+                  href={c.href ?? '#'}
+                  onClick={onNavigate}
+                  className="rounded-md px-3 py-2 pl-5 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
+                >
+                  {c.label}
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <Link
+              key={item.href ?? item.label}
+              href={item.href ?? '#'}
+              onClick={onNavigate}
+              className="rounded-md px-3 py-2 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
+            >
+              {item.label}
+            </Link>
+          ),
+        )}
       </div>
     </div>
   );
@@ -149,7 +172,7 @@ function MobileGroup({
 function NavLink({ item }: { item: NavItem }) {
   return (
     <Link
-      href={item.href}
+      href={item.href ?? '#'}
       className={cn(
         'rounded-md px-2.5 py-1 text-sm text-foreground-muted transition-colors',
         'hover:bg-surface-muted hover:text-foreground',
@@ -157,5 +180,50 @@ function NavLink({ item }: { item: NavItem }) {
     >
       {item.label}
     </Link>
+  );
+}
+
+function NavDropdown({ item }: { item: NavItem }) {
+  const [open, setOpen] = useState(false);
+  const children = item.children ?? [];
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm text-foreground-muted transition-colors hover:bg-surface-muted hover:text-foreground"
+      >
+        {item.label}
+        <ChevronDown className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            onClick={() => setOpen(false)}
+            className="fixed inset-0 z-10 cursor-default"
+          />
+          <div
+            role="menu"
+            className="absolute left-0 top-full z-20 mt-1 min-w-44 overflow-hidden rounded-md border border-border bg-surface py-1 shadow-lg"
+          >
+            {children.map((c) => (
+              <Link
+                key={c.href ?? c.label}
+                href={c.href ?? '#'}
+                onClick={() => setOpen(false)}
+                className="block px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
+              >
+                {c.label}
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
