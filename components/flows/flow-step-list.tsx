@@ -11,7 +11,16 @@ import {
   Video,
   Zap,
   ArrowDown,
+  ArrowUp,
   Pencil,
+  GripVertical,
+  ChevronDown,
+  ChevronRight,
+  MoreVertical,
+  Copy,
+  Trash2,
+  Split,
+  Combine,
 } from 'lucide-react';
 import type {
   FlowStep,
@@ -116,6 +125,26 @@ export default function FlowStepList({
   const [form, setForm] = useState<StepFormState>(defaultForm(false));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Steps default to collapsed so the flow reads as a compact, scannable list.
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(initialSteps.map((s) => s.id)),
+  );
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  function toggleCollapse(stepId: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(stepId)) next.delete(stepId);
+      else next.add(stepId);
+      return next;
+    });
+  }
+
+  function setAllCollapsed(value: boolean) {
+    setCollapsed(value ? new Set(steps.map((s) => s.id)) : new Set());
+  }
 
   async function apiPatch(body: Record<string, unknown>) {
     const res = await fetch(`/api/flows/${flowId}`, {
@@ -291,6 +320,75 @@ export default function FlowStepList({
     }
   }
 
+  /**
+   * Duplicate a step: create a copy with the same configuration, then place
+   * it immediately after the source. The copy gets its own phase so it never
+   * silently joins a parallel group.
+   */
+  async function handleDuplicate(step: FlowStep) {
+    setMenuOpenId(null);
+    setSaving(true);
+    setError(null);
+    try {
+      const maxPhase = steps.reduce((m, s) => Math.max(m, s.phase_index), 0);
+      const created = await apiPatch({
+        action: 'add_step',
+        step: {
+          title: `${step.title} (copy)`,
+          description: step.description || undefined,
+          step_type: step.step_type,
+          order_index: steps.length,
+          phase_index: maxPhase + 1,
+          appointment_type_id: step.appointment_type_id || undefined,
+          assessment_kind:
+            step.step_type === 'assessment' ? step.assessment_kind ?? null : null,
+          trigger_kind: step.trigger_kind,
+          output_kind: step.output_kind,
+          is_required: step.is_required,
+          lesson_ids:
+            step.step_type === 'video' ? step.lessons?.map((l) => l.id) ?? [] : [],
+        },
+      });
+      const fresh = created as FlowStep;
+      fresh.lessons = (step.lessons ?? []).map((l, i) => ({ ...l, order_index: i }));
+
+      const base = [...steps].sort((a, b) => a.order_index - b.order_index);
+      const srcIdx = base.findIndex((s) => s.id === step.id);
+      base.splice(srcIdx + 1, 0, fresh);
+      const reindexed = base.map((s, i) => ({ ...s, order_index: i }));
+      setSteps(reindexed);
+      await apiPatch({ action: 'reorder_steps', step_ids: reindexed.map((s) => s.id) });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to duplicate step');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Persist a freshly reordered flat list (used by drag-and-drop). */
+  async function commitReorder(newSorted: FlowStep[]) {
+    const prev = steps;
+    const reindexed = newSorted.map((s, i) => ({ ...s, order_index: i }));
+    setSteps(reindexed);
+    try {
+      await apiPatch({ action: 'reorder_steps', step_ids: reindexed.map((s) => s.id) });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reorder');
+      setSteps(prev);
+    }
+  }
+
+  function handleDrop(targetIndex: number) {
+    const from = dragIndex;
+    setDragIndex(null);
+    setOverIndex(null);
+    if (from === null || from === targetIndex) return;
+    const arr = [...steps].sort((a, b) => a.order_index - b.order_index);
+    const [moved] = arr.splice(from, 1);
+    arr.splice(targetIndex, 0, moved);
+    commitReorder(arr);
+  }
+
   function startEdit(step: FlowStep) {
     setEditingId(step.id);
     setAddingNew(false);
@@ -328,8 +426,22 @@ export default function FlowStepList({
     }
   }
 
+  const allCollapsed = steps.length > 0 && steps.every((s) => collapsed.has(s.id));
+
   return (
     <div className="space-y-2">
+      {steps.length > 1 && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setAllCollapsed(!allCollapsed)}
+            className="text-xs text-foreground-subtle hover:text-foreground"
+          >
+            {allCollapsed ? 'Expand all' : 'Collapse all'}
+          </button>
+        </div>
+      )}
+
       {/* Fixed signup entry block — describes how participants enter the flow */}
       <SignupEntryBlock />
       <Connector />
@@ -392,7 +504,19 @@ export default function FlowStepList({
                           canMergeIntoPrevPhase={canMergeIntoPrevPhase}
                           canSplit={canSplit}
                           saving={saving}
+                          collapsed={collapsed.has(step.id)}
+                          menuOpen={menuOpenId === step.id}
+                          isOver={overIndex === flatIndex && dragIndex !== null && dragIndex !== flatIndex}
+                          onToggleCollapse={() => toggleCollapse(step.id)}
+                          onToggleMenu={() =>
+                            setMenuOpenId((cur) => (cur === step.id ? null : step.id))
+                          }
+                          onDragStart={() => setDragIndex(flatIndex)}
+                          onDragEnter={() => setOverIndex(flatIndex)}
+                          onDragEnd={() => { setDragIndex(null); setOverIndex(null); }}
+                          onDrop={() => handleDrop(flatIndex)}
                           onEdit={() => startEdit(step)}
+                          onDuplicate={() => handleDuplicate(step)}
                           onDelete={() => handleDeleteStep(step.id)}
                           onMoveUp={() => handleMove(flatIndex, 'up')}
                           onMoveDown={() => handleMove(flatIndex, 'down')}
@@ -486,7 +610,17 @@ function StepBlock({
   canMergeIntoPrevPhase,
   canSplit,
   saving,
+  collapsed,
+  menuOpen,
+  isOver,
+  onToggleCollapse,
+  onToggleMenu,
+  onDragStart,
+  onDragEnter,
+  onDragEnd,
+  onDrop,
   onEdit,
+  onDuplicate,
   onDelete,
   onMoveUp,
   onMoveDown,
@@ -501,7 +635,17 @@ function StepBlock({
   canMergeIntoPrevPhase: boolean;
   canSplit: boolean;
   saving: boolean;
+  collapsed: boolean;
+  menuOpen: boolean;
+  isOver: boolean;
+  onToggleCollapse: () => void;
+  onToggleMenu: () => void;
+  onDragStart: () => void;
+  onDragEnter: () => void;
+  onDragEnd: () => void;
+  onDrop: () => void;
   onEdit: () => void;
+  onDuplicate: () => void;
   onDelete: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -518,111 +662,170 @@ function StepBlock({
       : OUTPUT_KINDS.find((o) => o.value === step.output_kind)?.label ?? step.output_kind;
 
   return (
-    <div className="rounded-lg border border-border bg-surface shadow-sm">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <div className="flex items-center gap-2">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={(e) => { e.preventDefault(); onDragEnter(); }}
+      onDrop={(e) => { e.preventDefault(); onDrop(); }}
+      onDragEnd={onDragEnd}
+      className={`rounded-lg border bg-surface shadow-sm transition ${
+        isOver ? 'border-primary ring-2 ring-primary/40' : 'border-border'
+      }`}
+    >
+      <div className={`flex items-center justify-between px-2 py-2 ${collapsed ? '' : 'border-b border-border'}`}>
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="cursor-grab p-1 text-foreground-subtle hover:text-foreground active:cursor-grabbing"
+            aria-label="Drag to reorder"
+            title="Drag to reorder"
+          >
+            <GripVertical className="h-4 w-4" />
+          </span>
+          <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">
             {index + 1}
           </span>
-          <span className="text-sm font-medium text-foreground">{step.title}</span>
-          {!step.is_required && (
-            <span className="text-xs text-foreground-subtle">optional</span>
-          )}
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="flex min-w-0 items-center gap-2 text-left"
+          >
+            <span className="truncate text-sm font-medium text-foreground">{step.title}</span>
+            {!step.is_required && (
+              <span className="flex-none text-xs text-foreground-subtle">optional</span>
+            )}
+            {collapsed && (
+              <span className="flex-none text-xs text-foreground-subtle">· {stepTypeLabel}</span>
+            )}
+          </button>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-none items-center gap-1">
           <button
-            onClick={onMoveUp}
-            disabled={!canMoveUp || saving}
-            className="rounded p-1 text-foreground-subtle hover:bg-surface-muted hover:text-foreground disabled:opacity-30"
-            aria-label="Move up"
-          >↑</button>
-          <button
-            onClick={onMoveDown}
-            disabled={!canMoveDown || saving}
-            className="rounded p-1 text-foreground-subtle hover:bg-surface-muted hover:text-foreground disabled:opacity-30"
-            aria-label="Move down"
-          >↓</button>
-          <button
-            onClick={onEdit}
+            type="button"
+            onClick={onToggleCollapse}
             className="rounded p-1 text-foreground-subtle hover:bg-surface-muted hover:text-foreground"
-            aria-label="Edit"
+            aria-label={collapsed ? 'Expand step' : 'Collapse step'}
           >
-            <Pencil className="h-3.5 w-3.5" />
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
-          <button
-            onClick={onDelete}
-            disabled={saving}
-            className="rounded px-2 py-0.5 text-xs text-foreground-subtle hover:bg-danger-bg hover:text-danger disabled:opacity-50"
-          >
-            Remove
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={onToggleMenu}
+              disabled={saving}
+              className="rounded p-1 text-foreground-subtle hover:bg-surface-muted hover:text-foreground disabled:opacity-50"
+              aria-label="Step actions"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <MoreVertical className="h-4 w-4" />
+            </button>
+            {menuOpen && (
+              <>
+                {/* click-away backdrop */}
+                <button
+                  type="button"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  onClick={onToggleMenu}
+                  className="fixed inset-0 z-10 cursor-default"
+                />
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border border-border bg-surface py-1 shadow-lg"
+                >
+                  <MenuItem icon={<Pencil className="h-3.5 w-3.5" />} label="Edit" onClick={() => { onToggleMenu(); onEdit(); }} />
+                  <MenuItem icon={<Copy className="h-3.5 w-3.5" />} label="Duplicate" onClick={onDuplicate} disabled={saving} />
+                  <MenuItem icon={<ArrowUp className="h-3.5 w-3.5" />} label="Move up" onClick={() => { onToggleMenu(); onMoveUp(); }} disabled={!canMoveUp || saving} />
+                  <MenuItem icon={<ArrowDown className="h-3.5 w-3.5" />} label="Move down" onClick={() => { onToggleMenu(); onMoveDown(); }} disabled={!canMoveDown || saving} />
+                  {canMergeIntoPrevPhase && (
+                    <MenuItem icon={<Combine className="h-3.5 w-3.5" />} label="Run in parallel with previous" onClick={() => { onToggleMenu(); onMergeIntoPrevPhase(); }} disabled={saving} />
+                  )}
+                  {canSplit && (
+                    <MenuItem icon={<Split className="h-3.5 w-3.5" />} label="Move to its own phase" onClick={() => { onToggleMenu(); onSplit(); }} disabled={saving} />
+                  )}
+                  <div className="my-1 border-t border-border" />
+                  <MenuItem icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove" tone="danger" onClick={() => { onToggleMenu(); onDelete(); }} disabled={saving} />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {(canMergeIntoPrevPhase || canSplit) && (
-        <div className="flex items-center gap-2 border-b border-border bg-surface-muted/30 px-4 py-1.5 text-xs">
-          {canMergeIntoPrevPhase && (
-            <button
-              type="button"
-              onClick={onMergeIntoPrevPhase}
-              disabled={saving}
-              className="rounded px-2 py-0.5 text-foreground-muted hover:bg-info-bg/40 hover:text-info disabled:opacity-50"
-            >
-              ⇡ Run in parallel with previous step
-            </button>
+      {!collapsed && (
+        <>
+          {step.description && (
+            <p className="border-b border-border px-4 py-2 text-xs text-foreground-muted">
+              {step.description}
+            </p>
           )}
-          {canSplit && (
-            <button
-              type="button"
-              onClick={onSplit}
-              disabled={saving}
-              className="rounded px-2 py-0.5 text-foreground-muted hover:bg-warning-bg/40 hover:text-warning disabled:opacity-50"
-            >
-              ↓ Move to its own phase
-            </button>
-          )}
-        </div>
+
+          {/* TRIGGER row */}
+          <Row label="Trigger" tone="trigger">
+            <span className="text-foreground">{triggerLabel}</span>
+          </Row>
+
+          {/* ACTION row */}
+          <Row label="Action" tone="action">
+            <span className="inline-flex items-center gap-1.5 text-foreground">
+              <span className="text-foreground-subtle">{STEP_ICON[step.step_type]}</span>
+              {stepTypeLabel}
+            </span>
+            {step.step_type === 'video' && step.lessons && step.lessons.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5 text-xs text-foreground-muted">
+                {step.lessons.map((l) => (
+                  <li key={l.id} className="flex items-center gap-1.5">
+                    <Video className="h-3 w-3 text-foreground-subtle" />
+                    {l.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {step.step_type === 'assessment' && step.assessment_kind && (
+              <p className="mt-1 text-xs text-foreground-muted">
+                {ASSESSMENT_KINDS.find((k) => k.value === step.assessment_kind)?.label}
+              </p>
+            )}
+          </Row>
+
+          {/* OUTPUT row */}
+          <Row label="Output" tone="output" last={isLast}>
+            <span className="text-foreground">{outputLabel}</span>
+          </Row>
+        </>
       )}
-
-      {step.description && (
-        <p className="border-b border-border px-4 py-2 text-xs text-foreground-muted">
-          {step.description}
-        </p>
-      )}
-
-      {/* TRIGGER row */}
-      <Row label="Trigger" tone="trigger">
-        <span className="text-foreground">{triggerLabel}</span>
-      </Row>
-
-      {/* ACTION row */}
-      <Row label="Action" tone="action">
-        <span className="inline-flex items-center gap-1.5 text-foreground">
-          <span className="text-foreground-subtle">{STEP_ICON[step.step_type]}</span>
-          {stepTypeLabel}
-        </span>
-        {step.step_type === 'video' && step.lessons && step.lessons.length > 0 && (
-          <ul className="mt-1.5 space-y-0.5 text-xs text-foreground-muted">
-            {step.lessons.map((l) => (
-              <li key={l.id} className="flex items-center gap-1.5">
-                <Video className="h-3 w-3 text-foreground-subtle" />
-                {l.title}
-              </li>
-            ))}
-          </ul>
-        )}
-        {step.step_type === 'assessment' && step.assessment_kind && (
-          <p className="mt-1 text-xs text-foreground-muted">
-            {ASSESSMENT_KINDS.find((k) => k.value === step.assessment_kind)?.label}
-          </p>
-        )}
-      </Row>
-
-      {/* OUTPUT row */}
-      <Row label="Output" tone="output" last={isLast}>
-        <span className="text-foreground">{outputLabel}</span>
-      </Row>
     </div>
+  );
+}
+
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  disabled,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: 'danger';
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm disabled:opacity-40 ${
+        tone === 'danger'
+          ? 'text-danger hover:bg-danger-bg'
+          : 'text-foreground hover:bg-surface-muted'
+      }`}
+    >
+      <span className="flex-none text-foreground-subtle">{icon}</span>
+      {label}
+    </button>
   );
 }
 
