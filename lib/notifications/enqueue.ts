@@ -258,7 +258,7 @@ export async function enqueueMeetingScheduled(
     admin
       .from('connectors')
       .select(
-        'id, phone, profile:profiles!connectors_profile_id_fkey(first_name, last_name, email, phone)',
+        'id, profile:profiles!connectors_profile_id_fkey(first_name, last_name, email, phone)',
       )
       .eq('id', args.connectorId)
       .maybeSingle(),
@@ -266,10 +266,9 @@ export async function enqueueMeetingScheduled(
 
   const participant = participantResult.data as ParticipantContext | null;
   if (!participant) return;
-  const connectorRow =
-    (connectorResult.data as { phone: string | null; profile: ConnectorContact | null } | null) ?? null;
-  const connectorProfile = connectorRow?.profile ?? null;
-  const connectorPhone = connectorRow?.phone ?? connectorProfile?.phone ?? null;
+  const connectorProfile =
+    (connectorResult.data as { profile: ConnectorContact | null } | null)?.profile ?? null;
+  const connectorPhone = connectorProfile?.phone ?? null;
 
   const connectorName = connectorProfile
     ? `${connectorProfile.first_name ?? ''} ${connectorProfile.last_name ?? ''}`.trim() || 'your connector'

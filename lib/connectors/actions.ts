@@ -53,14 +53,13 @@ export async function createConnector(formData: FormData): Promise<ActionResult>
       campus_id,
       scheduling_resource_id,
       is_active,
-      phone,
     })
     .select('id')
     .single();
 
   if (error) return { ok: false, error: error.message };
 
-  // Keep the profile phone in sync so notifications can reach them.
+  // Phone lives on the profile (connectors has no phone column).
   await supabase.from('profiles').update({ phone }).eq('id', profile_id);
 
   await recordAudit({
@@ -89,13 +88,14 @@ export async function updateConnector(
   const supabase = await createServerSupabaseClient();
   const { data: updated, error } = await supabase
     .from('connectors')
-    .update({ campus_id, scheduling_resource_id, is_active, phone })
+    .update({ campus_id, scheduling_resource_id, is_active })
     .eq('id', id)
     .select('profile_id')
     .single();
 
   if (error) return { ok: false, error: error.message };
 
+  // Phone lives on the profile (connectors has no phone column).
   if (updated?.profile_id) {
     await supabase.from('profiles').update({ phone }).eq('id', updated.profile_id);
   }
