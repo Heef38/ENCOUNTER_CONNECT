@@ -6,6 +6,8 @@ import type { ParticipantStatus } from '@/lib/participants/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { ConfirmDeleteButton } from '@/components/ui/confirm-delete-button';
+import { deleteParticipantAccount } from '@/lib/participants/actions';
 
 const PAGE_SIZE = 25;
 
@@ -86,9 +88,13 @@ export default async function ParticipantsPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireStaff();
+  const session = await requireStaff();
   const params = await searchParams;
   const supabase = await createServerSupabaseClient();
+
+  // Full account deletion is church-admin+ only.
+  const canDelete =
+    (session.profile?.is_platform_admin ?? false) || session.profile?.role === 'church_admin';
 
   const page = Math.max(1, parseInt(params.page ?? '1', 10) || 1);
   const from = (page - 1) * PAGE_SIZE;
@@ -222,6 +228,7 @@ export default async function ParticipantsPage({
               <TH>Step</TH>
               <TH>Progress</TH>
               <TH>Status</TH>
+              {canDelete && <TH className="w-10" />}
             </TR>
           </THead>
           <TBody>
@@ -274,6 +281,15 @@ export default async function ParticipantsPage({
                       {p.status.replace('_', ' ')}
                     </Badge>
                   </TD>
+                  {canDelete && (
+                    <TD>
+                      <ConfirmDeleteButton
+                        action={deleteParticipantAccount.bind(null, p.id)}
+                        message={`Permanently delete ${p.first_name} ${p.last_name}'s account? This removes their login, journey, and assessment data and cannot be undone.`}
+                        label="Delete"
+                      />
+                    </TD>
+                  )}
                 </TR>
               );
             })}
