@@ -20,7 +20,9 @@ import {
 } from '@/lib/connectors/booking-actions';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { BookingDecision } from './booking-decision';
+import { generateOneOnOneDoc, KIND_LABEL } from '@/lib/connectors/prep-doc';
 import type { FlowStepType } from '@/lib/flows/types';
 import type { AssessmentKind, ComputedScore, AssessmentCategory } from '@/lib/assessments/types';
 
@@ -52,12 +54,6 @@ interface ParticipantData {
   campus: { id: string; name: string } | null;
   progress: ProgressRow[] | null;
 }
-
-const KIND_LABEL: Record<AssessmentKind, string> = {
-  personal:         'Personal',
-  connect_with_god: 'Connect with God',
-  spiritual_gifts:  'Spiritual Gifts',
-};
 
 export default async function ConnectorParticipantPage({
   params,
@@ -174,6 +170,13 @@ export default async function ConnectorParticipantPage({
   const pendingMeetings = meetings.filter((m) => m.status === 'pending_confirmation');
   const upcomingMeetings = meetings.filter((m) => m.status !== 'pending_confirmation');
 
+  // Map each booking back to its progress row so we can open the meeting room.
+  const progressByBooking = new Map<string, string>();
+  for (const p of progress) {
+    const b = (p as ProgressRow & { scheduled_event_id?: string | null }).scheduled_event_id;
+    if (b) progressByBooking.set(b, p.id);
+  }
+
   async function confirmAction(bookingId: string) {
     'use server';
     return connectorConfirmBooking(bookingId);
@@ -273,16 +276,23 @@ export default async function ConnectorParticipantPage({
               key={b.booking_id}
               className="rounded-lg border border-success/40 bg-success-bg/50 p-4"
             >
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-success/15 text-success">
-                  <CalendarDays className="h-5 w-5" />
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-success/15 text-success">
+                    <CalendarDays className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">Scheduled meeting</p>
+                    <p className="mt-0.5 text-sm text-foreground-muted">
+                      {new Date(b.starts_at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-medium text-foreground">Scheduled meeting</p>
-                  <p className="mt-0.5 text-sm text-foreground-muted">
-                    {new Date(b.starts_at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
-                  </p>
-                </div>
+                {access.canWrite && progressByBooking.get(b.booking_id) && (
+                  <Link href={`/connector/participants/${id}/meeting/${progressByBooking.get(b.booking_id)}`}>
+                    <Button size="sm">Start meeting</Button>
+                  </Link>
+                )}
               </div>
             </div>
           ))}
@@ -455,90 +465,4 @@ export default async function ConnectorParticipantPage({
       </section>
     </div>
   );
-}
-
-/**
- * Builds a markdown-flavored prep doc the connector reads during their
- * meeting. Renders as plain text via <pre> until a markdown library lands.
- */
-function generateOneOnOneDoc(input: {
-  participant: ParticipantData;
-  progress: ProgressRow[];
-  results: Array<{
-    assessment_id: string;
-    computed_score: ComputedScore;
-    assessment: { kind: AssessmentKind; name: string } | null;
-  }>;
-  categoriesByAssessment: Map<string, AssessmentCategory[]>;
-}): string {
-  const { participant, progress, results, categoriesByAssessment } = input;
-  const lines: string[] = [];
-
-  lines.push(`# 1:1 prep — ${participant.first_name} ${participant.last_name}`);
-  lines.push('');
-
-  lines.push('## Where they are');
-  if (participant.campus) lines.push(`- Campus: ${participant.campus.name}`);
-  lines.push(`- Status: ${participant.status.replace('_', ' ')}`);
-  if (participant.signed_up_at) {
-    lines.push(
-      `- Signed up: ${new Date(participant.signed_up_at).toLocaleDateString()}`,
-    );
-  }
-  const completedTitles = progress
-    .filter((p) => p.status === 'completed' && p.flow_step)
-    .map((p) => p.flow_step!.title);
-  if (completedTitles.length > 0) {
-    lines.push('- Completed:');
-    for (const t of completedTitles) lines.push(`  - ${t}`);
-  }
-  const currentTitles = progress
-    .filter((p) => p.status === 'in_progress' && p.flow_step)
-    .map((p) => p.flow_step!.title);
-  if (currentTitles.length > 0) {
-    lines.push('- Currently working on:');
-    for (const t of currentTitles) lines.push(`  - ${t}`);
-  }
-  lines.push('');
-
-  if (results.length > 0) {
-    lines.push('## Assessment highlights');
-    for (const r of results) {
-      const kindLabel = r.assessment ? KIND_LABEL[r.assessment.kind] : 'Assessment';
-      lines.push(`### ${kindLabel}`);
-      const top = r.computed_score?.top ?? [];
-      const cats = categoriesByAssessment.get(r.assessment_id) ?? [];
-      if (top.length === 0) {
-        lines.push('_No top categories computed._');
-      } else {
-        for (const t of top) {
-          lines.push(`- **${t.label}** — ${t.points.toFixed(1)} pts`);
-          const body = cats.find((c) => c.id === t.category_id)?.body;
-          if (body) {
-            const trimmed = body.length > 220 ? `${body.slice(0, 220)}…` : body;
-            lines.push(`  ${trimmed.replace(/\n+/g, ' ')}`);
-          }
-        }
-      }
-      lines.push('');
-    }
-
-    lines.push('## Suggested conversation starters');
-    for (const r of results) {
-      const kindLabel = r.assessment ? KIND_LABEL[r.assessment.kind] : 'Assessment';
-      const top = r.computed_score?.top ?? [];
-      if (top.length === 0) continue;
-      lines.push(`- ${kindLabel}: "Tell me about a time you've experienced ${top[0].label.toLowerCase()}."`);
-    }
-    lines.push('');
-  } else {
-    lines.push('## Assessments');
-    lines.push('_No assessments completed yet — let\'s talk about how the journey is going so far._');
-    lines.push('');
-  }
-
-  lines.push('## Notes from this meeting');
-  lines.push('_(jot down what you talk about — pen-and-paper for now)_');
-
-  return lines.join('\n');
 }

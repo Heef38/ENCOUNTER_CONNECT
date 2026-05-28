@@ -36,6 +36,8 @@ interface ProgressRow {
   id: string;
   status: 'pending' | 'in_progress' | 'completed' | 'skipped';
   scheduled_event_id: string | null;
+  connector_notes: string | null;
+  meeting_completed_at: string | null;
   participant: {
     id: string;
     profile_id: string | null;
@@ -89,7 +91,7 @@ export default async function JourneyStepPage({
   const { data } = await supabase
     .from('participant_progress')
     .select(
-      `id, status, scheduled_event_id,
+      `id, status, scheduled_event_id, connector_notes, meeting_completed_at,
        participant:participants!inner(id, profile_id, church_id, campus_id),
        flow_step:flow_steps!inner(
          id, title, description, step_type, appointment_type_id, assessment_kind, output_kind,
@@ -283,25 +285,38 @@ export default async function JourneyStepPage({
                   </div>
                 </div>
               </div>
-            ) : step.output_kind === 'auto_match_connector' ? (
-              <ConnectorSlotPicker
-                proposedSlots={proposedSlots}
-                allSlots={allSlots}
-                bookAction={bookAction}
-              />
-            ) : (
-              <Link
-                href={
-                  step.appointment_type_id
-                    ? `/scheduling/new-booking?type=${step.appointment_type_id}&progress=${progress.id}`
-                    : '/scheduling/new-booking'
-                }
-              >
-                <Button className="w-full">
-                  <CalendarDays className="h-4 w-4" />
-                  Book your appointment
-                </Button>
-              </Link>
+            ) : null}
+
+            {progress.meeting_completed_at && progress.connector_notes && (
+              <div className="rounded-lg border border-border bg-surface p-4">
+                <p className="text-sm font-semibold text-foreground">Notes from your meeting</p>
+                <p className="mt-1 whitespace-pre-wrap text-base text-foreground-muted">
+                  {progress.connector_notes}
+                </p>
+              </div>
+            )}
+
+            {!booking && (
+              step.output_kind === 'auto_match_connector' ? (
+                <ConnectorSlotPicker
+                  proposedSlots={proposedSlots}
+                  allSlots={allSlots}
+                  bookAction={bookAction}
+                />
+              ) : (
+                <Link
+                  href={
+                    step.appointment_type_id
+                      ? `/scheduling/new-booking?type=${step.appointment_type_id}&progress=${progress.id}`
+                      : '/scheduling/new-booking'
+                  }
+                >
+                  <Button className="w-full">
+                    <CalendarDays className="h-4 w-4" />
+                    Book your appointment
+                  </Button>
+                </Link>
+              )
             )}
           </div>
         )}

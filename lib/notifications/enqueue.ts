@@ -465,6 +465,81 @@ export async function enqueueMeetingDecision(
   }
 }
 
+/**
+ * Shares the connector's meeting notes with the participant after a meeting
+ * is completed: full notes by email, and a short alert by SMS (if opted in).
+ * Best-effort.
+ */
+export async function enqueueMeetingNotes(
+  admin: SupabaseClient,
+  args: { participantId: string; connectorId: string; notes: string },
+): Promise<void> {
+  const notes = (args.notes ?? '').trim();
+  if (!notes) return;
+
+  const [participantResult, connectorResult] = await Promise.all([
+    admin
+      .from('participants')
+      .select('id, first_name, last_name, email, phone, church_id, sms_consent_at')
+      .eq('id', args.participantId)
+      .maybeSingle(),
+    admin
+      .from('connectors')
+      .select('id, profile:profiles!connectors_profile_id_fkey(first_name, last_name)')
+      .eq('id', args.connectorId)
+      .maybeSingle(),
+  ]);
+
+  const participant = participantResult.data as ParticipantContext | null;
+  if (!participant) return;
+  const connectorProfile =
+    (connectorResult.data as { profile: ConnectorContact | null } | null)?.profile ?? null;
+  const connectorName = connectorProfile
+    ? `${connectorProfile.first_name ?? ''} ${connectorProfile.last_name ?? ''}`.trim() || 'your connector'
+    : 'your connector';
+  const participantName = `${participant.first_name} ${participant.last_name}`.trim();
+
+  const rows: Record<string, unknown>[] = [];
+  const meta = { trigger: 'meeting_notes', connector_id: args.connectorId };
+
+  if (participant.email) {
+    rows.push({
+      church_id: participant.church_id,
+      participant_id: participant.id,
+      template_key: 'meeting_notes_to_participant',
+      channel: 'email',
+      recipient_email: participant.email,
+      recipient_name: participantName || null,
+      subject: `Notes from your meeting with ${connectorName}`,
+      body:
+        `Hi ${participant.first_name},\n\n` +
+        `Here are the notes ${connectorName} shared from your meeting:\n\n` +
+        `${notes}\n\n— Encounter Connect`,
+      status: 'pending',
+      metadata: meta,
+    });
+  }
+
+  if (participant.sms_consent_at && participant.phone) {
+    rows.push({
+      church_id: participant.church_id,
+      participant_id: participant.id,
+      template_key: 'meeting_notes_to_participant',
+      channel: 'sms',
+      recipient_phone: participant.phone,
+      recipient_name: participantName || null,
+      subject: null,
+      body: `${connectorName} shared notes from your meeting. Open Encounter Connect to read them.`,
+      status: 'pending',
+      metadata: meta,
+    });
+  }
+
+  if (rows.length > 0) {
+    await admin.from('notification_outbox').insert(rows);
+  }
+}
+
 interface StaleSweepReport {
   churchesScanned: number;
   participantsScanned: number;
