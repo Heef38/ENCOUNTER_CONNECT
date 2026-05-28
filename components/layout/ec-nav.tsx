@@ -57,17 +57,7 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
             className="block flex-none"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/Logo_White.png"
-              alt="Encounter Connect"
-              className="logo-dark h-8 w-auto"
-            />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/Logo_Black.png"
-              alt="Encounter Connect"
-              className="logo-light h-8 w-auto"
-            />
+            <img src="/EC.png" alt="Encounter Connect" className="h-8 w-auto" />
           </Link>
         </div>
 

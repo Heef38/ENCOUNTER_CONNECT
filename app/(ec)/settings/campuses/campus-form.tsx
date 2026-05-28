@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -29,6 +29,7 @@ export function CampusForm({
   redirectOnSuccess,
 }: Props) {
   const router = useRouter();
+  const [brandColor, setBrandColor] = useState(campus?.brand_color ?? '');
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     async (prev, formData) => {
       const result = await action(prev, formData);
@@ -130,16 +131,36 @@ export function CampusForm({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="brand_color">Brand color</Label>
-            <Input
-              id="brand_color"
-              name="brand_color"
-              defaultValue={campus?.brand_color ?? ''}
-              placeholder="#0f766e"
-              className="font-mono text-xs"
-            />
+            <Label htmlFor="brand_color">Journey color</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                aria-label="Pick journey color"
+                value={brandColor || '#0f766e'}
+                onChange={(e) => setBrandColor(e.target.value)}
+                className="h-9 w-12 flex-none cursor-pointer rounded border border-border bg-surface p-0.5"
+              />
+              <Input
+                id="brand_color"
+                name="brand_color"
+                value={brandColor}
+                onChange={(e) => setBrandColor(e.target.value)}
+                placeholder="#0f766e"
+                className="font-mono text-xs"
+              />
+              {brandColor && (
+                <button
+                  type="button"
+                  onClick={() => setBrandColor('')}
+                  className="flex-none text-xs text-foreground-subtle hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
             <p className="text-xs text-foreground-subtle">
-              Hex value used for accents on this campus&apos;s landing page.
+              Themes how the participant&apos;s journey looks — the progress bar and
+              accents. Leave blank to use the church default.
             </p>
           </div>
         </div>
