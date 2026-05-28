@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ChevronLeft, Pencil } from 'lucide-react';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getConnector } from '@/lib/connectors/services';
 import { requireStaff } from '@/lib/auth/dal';
 import { Badge } from '@/components/ui/badge';
@@ -52,7 +52,10 @@ export default async function ConnectorDetailPage({
     attendees: { display_name: string; role: string }[];
   }> = [];
   if (connector.scheduling_resource_id) {
-    const { data } = await supabase
+    // Bookings live in the scheduling core, unreadable by EC admins under RLS;
+    // read via service-role (already gated by requireStaff above).
+    const admin = await createServiceRoleClient();
+    const { data } = await admin
       .from('scheduling_bookings')
       .select(`id, starts_at, ends_at, status, appointment_type:scheduling_appointment_types(name),
                attendees:scheduling_booking_attendees(display_name, role)`)

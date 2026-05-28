@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export type AppointmentScope = 'upcoming' | 'past';
 
@@ -44,6 +44,7 @@ interface RawProgressRow {
     email: string | null;
     phone: string | null;
     status: string;
+    church_id: string;
     campus: { name: string } | null;
     current_step: { title: string } | null;
   } | null;
@@ -67,8 +68,13 @@ interface RawProgressRow {
 
 export async function getAppointments(
   scope: AppointmentScope,
+  churchId: string | null,
 ): Promise<AppointmentRow[]> {
-  const supabase = await createServerSupabaseClient();
+  // Service-role: bookings live in the scheduling core and aren't readable by
+  // EC staff under RLS, so the inner-joined booking embed would drop every
+  // row. We scope to the caller's church explicitly to stay tenant-safe
+  // (churchId null = platform admin, all churches).
+  const supabase = await createServiceRoleClient();
   const now = new Date().toISOString();
 
   let q = supabase
@@ -76,7 +82,7 @@ export async function getAppointments(
     .select(
       `scheduled_event_id,
        participant:participants!inner(
-         id, first_name, last_name, email, phone, status,
+         id, first_name, last_name, email, phone, status, church_id,
          campus:campuses(name),
          current_step:flow_steps!participants_current_step_id_fkey(title)
        ),
@@ -107,6 +113,7 @@ export async function getAppointments(
 
   return rows
     .filter((r) => r.booking && r.participant)
+    .filter((r) => churchId === null || r.participant!.church_id === churchId)
     .map<AppointmentRow>((r) => {
       const booking = r.booking!;
       const participant = r.participant!;

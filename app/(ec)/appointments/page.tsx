@@ -15,11 +15,15 @@ export default async function AppointmentsPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireStaff();
+  const session = await requireStaff();
   const params = await searchParams;
   const scope: AppointmentScope = params.scope === 'past' ? 'past' : 'upcoming';
 
-  const rows = await getAppointments(scope);
+  // Platform admins see every church; church/campus admins are scoped to theirs.
+  const churchId = session.profile?.is_platform_admin
+    ? null
+    : session.profile?.church_id ?? null;
+  const rows = await getAppointments(scope, churchId);
 
   return (
     <div className="space-y-6">
