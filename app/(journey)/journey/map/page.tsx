@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import {
   Check,
   ArrowDown,
+  ArrowLeft,
   CalendarDays,
   ClipboardList,
   MessageSquare,
@@ -15,41 +16,8 @@ import {
 import { requireAuth } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { loadParticipantJourney, type JourneyStep } from '@/lib/journey/queries';
 import type { FlowStepType } from '@/lib/flows/types';
-
-interface JourneyStep {
-  id: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'skipped';
-  completed_at: string | null;
-  flow_step: {
-    id: string;
-    title: string;
-    description: string | null;
-    step_type: FlowStepType;
-    order_index: number;
-    phase_index: number;
-    is_required: boolean;
-  } | null;
-}
-
-interface JourneyParticipant {
-  id: string;
-  first_name: string;
-  status: string;
-  campus: {
-    id: string;
-    name: string;
-    hero_image_url: string | null;
-    intro_text: string | null;
-    body: string | null;
-    brand_color: string | null;
-  } | null;
-  connector: {
-    profile: { first_name: string; last_name: string; email: string | null } | null;
-  } | null;
-  progress: JourneyStep[] | null;
-}
 
 const STEP_ICON: Record<FlowStepType, React.ReactNode> = {
   manual:       <Sparkles className="h-4 w-4" />,
@@ -69,61 +37,20 @@ const STEP_LABEL: Record<FlowStepType, string> = {
   assessment:   'Assessment',
 };
 
-export default async function JourneyPage() {
+export default async function JourneyMapPage() {
   const session = await requireAuth();
-
-  const role = session.profile?.role;
-  const isPlatform = session.profile?.is_platform_admin ?? false;
-  if (isPlatform || (role && role !== 'participant')) {
-    redirect('/dashboard');
-  }
-
   const supabase = await createServerSupabaseClient();
-  const { data } = await supabase
-    .from('participants')
-    .select(
-      `id, first_name, status,
-       campus:campuses(id, name, hero_image_url, intro_text, body, brand_color),
-       connector:connectors!participants_assigned_connector_id_fkey(
-         profile:profiles!connectors_profile_id_fkey(first_name, last_name, email)
-       ),
-       progress:participant_progress(
-         id, status, completed_at,
-         flow_step:flow_steps(id, title, description, step_type, order_index, phase_index, is_required)
-       )`,
-    )
-    .eq('profile_id', session.id)
-    .maybeSingle();
+  const participant = await loadParticipantJourney(supabase, session.id);
 
-  const participant = data as unknown as JourneyParticipant | null;
+  if (!participant) redirect('/journey');
 
-  if (!participant) {
-    return (
-      <div className="mx-auto max-w-2xl py-12">
-        <h1 className="font-display text-3xl font-semibold text-foreground">Welcome</h1>
-        <p className="mt-3 text-sm text-foreground-muted">
-          Your account isn&apos;t linked to a participant record yet. Reach out to
-          your campus team so they can get you started.
-        </p>
-      </div>
-    );
-  }
-
-  // Order purely by order_index (the editor's drag order). Phase grouping is
-  // a visual run of consecutive same-phase steps below — sorting by phase
-  // first would scramble whatever order the admin set in the editor.
+  // Order purely by order_index (the editor's drag order); phase grouping is a
+  // visual run of consecutive same-phase steps below.
   const progress = (participant.progress ?? [])
     .slice()
-    .sort(
-      (a, b) =>
-        (a.flow_step?.order_index ?? 0) - (b.flow_step?.order_index ?? 0),
-    );
+    .filter((s) => s.flow_step !== null)
+    .sort((a, b) => (a.flow_step?.order_index ?? 0) - (b.flow_step?.order_index ?? 0));
 
-  // Group by phase_index. State per group:
-  //  - 'done':    every required step in the phase is completed
-  //  - 'current': any step in the phase is in_progress (or pending in a phase
-  //               that no later phase has started yet)
-  //  - 'locked':  no step in the phase has progress yet
   type PhaseGroup = {
     phaseIndex: number;
     steps: JourneyStep[];
@@ -140,23 +67,16 @@ export default async function JourneyPage() {
   for (const group of phaseGroups) {
     const requiredSteps = group.steps.filter((s) => s.flow_step?.is_required);
     const allRequiredDone =
-      requiredSteps.length > 0 &&
-      requiredSteps.every((s) => s.status === 'completed');
-    const anyOpen = group.steps.some(
-      (s) => s.status === 'in_progress' || s.status === 'pending',
-    );
+      requiredSteps.length > 0 && requiredSteps.every((s) => s.status === 'completed');
+    const anyOpen = group.steps.some((s) => s.status === 'in_progress' || s.status === 'pending');
     if (allRequiredDone && !anyOpen) {
       group.state = 'done';
     } else if (group.steps.some((s) => s.status === 'in_progress')) {
       group.state = 'current';
     } else if (
-      group.steps.every((s) => s.status === 'pending')
-      && phaseGroups.every(
-        (g) => g.phaseIndex >= group.phaseIndex || g.state === 'done',
-      )
+      group.steps.every((s) => s.status === 'pending') &&
+      phaseGroups.every((g) => g.phaseIndex >= group.phaseIndex || g.state === 'done')
     ) {
-      // No earlier phase is unfinished, so this is the active phase even
-      // though no row has been promoted to in_progress yet.
       group.state = 'current';
     } else {
       group.state = 'locked';
@@ -166,20 +86,22 @@ export default async function JourneyPage() {
   const total = progress.length;
   const doneCount = progress.filter((p) => p.status === 'completed').length;
   const pct = total === 0 ? 0 : Math.round((doneCount / total) * 100);
-  const allDone = phaseGroups.every((g) => g.state === 'done');
 
   const connector = participant.connector?.profile;
   const campus = participant.campus;
-  const accent = campus?.brand_color ?? null;
 
   return (
-    <div
-      className="mx-auto max-w-2xl space-y-6"
-      style={accent ? ({ ['--campus-accent' as string]: accent } as React.CSSProperties) : undefined}
-    >
+    <div className="space-y-6 px-4 py-5">
       <div>
-        <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">
-          Hi, {participant.first_name}
+        <Link
+          href="/journey"
+          className="mb-2 inline-flex items-center gap-1 text-xs text-foreground-subtle hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to current step
+        </Link>
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+          Your journey
         </h1>
         <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-foreground-muted">
           {campus?.name && <span>{campus.name}</span>}
@@ -191,22 +113,18 @@ export default async function JourneyPage() {
         <div className="space-y-2">
           <div className="flex items-baseline justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
-              Your progress
+              Progress
             </span>
             <span className="text-xs text-foreground-subtle">
               {doneCount} of {total} · {pct}%
             </span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${pct}%` }}
-            />
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
           </div>
         </div>
       )}
 
-      {/* Function-block journey: signup entry, then each phase as a group */}
       <div className="space-y-1">
         <SignupBlock participantName={participant.first_name} campusName={campus?.name ?? null} />
         <ConnectorLine />
@@ -233,19 +151,12 @@ export default async function JourneyPage() {
                     const stepState =
                       p.status === 'completed'
                         ? 'done'
-                        : group.state === 'current' &&
-                          (p.status === 'in_progress' || p.status === 'pending')
+                        : group.state === 'current' && (p.status === 'in_progress' || p.status === 'pending')
                         ? 'current'
                         : group.state === 'done'
                         ? 'done'
                         : 'locked';
-                    return (
-                      <JourneyStepBlock
-                        key={p.id}
-                        progress={p}
-                        state={stepState}
-                      />
-                    );
+                    return <JourneyStepBlock key={p.id} progress={p} state={stepState} />;
                   })}
                 </div>
               </div>
@@ -254,19 +165,6 @@ export default async function JourneyPage() {
           );
         })}
       </div>
-
-      {allDone && total > 0 && (
-        <div className="rounded-md border border-success/40 bg-success-bg/50 p-3 text-sm text-foreground-muted">
-          You&apos;ve completed every step. 🎉 Your campus team will reach out about
-          what&apos;s next.
-        </div>
-      )}
-
-      {total === 0 && (
-        <div className="rounded-md border border-dashed border-border-strong p-6 text-center text-sm text-foreground-muted">
-          No steps assigned yet. Your campus will add them soon.
-        </div>
-      )}
 
       {connector && (
         <section className="rounded-lg border border-border bg-surface p-4">
@@ -277,10 +175,7 @@ export default async function JourneyPage() {
             {connector.first_name} {connector.last_name}
           </p>
           {connector.email && (
-            <a
-              href={`mailto:${connector.email}`}
-              className="text-sm text-primary hover:underline"
-            >
+            <a href={`mailto:${connector.email}`} className="text-sm text-primary hover:underline">
               {connector.email}
             </a>
           )}
@@ -306,9 +201,7 @@ function SignupBlock({
           <Check className="h-4 w-4" />
         </div>
         <div className="flex-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-success">
-            Signed up
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-success">Signed up</p>
           <p className="text-sm text-foreground">
             Welcome, {participantName}.
             {campusName && <> You&apos;re part of <span className="font-medium">{campusName}</span>.</>}
@@ -364,9 +257,7 @@ function JourneyStepBlock({
   const inner = (
     <div className={`rounded-lg p-3 transition ${containerClass}`}>
       <div className="flex items-start gap-3">
-        <div
-          className={`flex h-8 w-8 flex-none items-center justify-center rounded-full ${iconBg}`}
-        >
+        <div className={`flex h-8 w-8 flex-none items-center justify-center rounded-full ${iconBg}`}>
           {icon}
         </div>
         <div className="min-w-0 flex-1">
@@ -394,9 +285,6 @@ function JourneyStepBlock({
             <p className="mt-1 text-xs text-foreground-subtle">{STEP_LABEL[step.step_type]}</p>
           )}
         </div>
-        {state === 'current' && (
-          <Button size="sm">Continue</Button>
-        )}
       </div>
     </div>
   );
