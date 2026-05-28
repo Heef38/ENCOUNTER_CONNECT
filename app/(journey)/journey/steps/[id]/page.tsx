@@ -410,7 +410,7 @@ export default async function JourneyStepPage({
             ) : step.step_type === 'event' ? (
               <CompleteStepButton action={attendAction} label="Mark attended" />
             ) : step.step_type === 'video' ? (
-              <CompleteStepButton action={completeAction} label="I've watched these" />
+              <CompleteStepButton action={completeAction} label="Completed?" />
             ) : step.step_type === 'schedule' ? (
               <CompleteStepButton action={completeAction} label="I've completed this" />
             ) : step.step_type === 'manual' || step.step_type === 'conversation' ? (
