@@ -146,7 +146,11 @@ export default async function JourneyStepPage({
   }
 
   if (step.step_type === 'schedule' && progress.scheduled_event_id) {
-    const { data: bk } = await supabase
+    // Read via service-role: the booking lives in the scheduling core, which
+    // EC participants can't read under RLS. Ownership is already verified by
+    // the progress row check above, so this is safe.
+    const admin = await createServiceRoleClient();
+    const { data: bk } = await admin
       .from('scheduling_bookings')
       .select('id, starts_at, status')
       .eq('id', progress.scheduled_event_id)
