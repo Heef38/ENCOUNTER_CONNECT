@@ -86,8 +86,9 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
       label: 'Connector',
       color: 'success',
       items: [
-        { href: '/connector',        label: 'My participants' },
-        { href: '/connector/campus', label: 'All campus' },
+        { href: '/connector',              label: 'My participants' },
+        { href: '/connector/campus',       label: 'All campus' },
+        { href: '/connector/availability', label: 'My availability' },
       ],
     });
   }

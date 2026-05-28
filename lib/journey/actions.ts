@@ -12,7 +12,7 @@ import {
   enqueueStepCompletionNotice,
   enqueueMeetingScheduled,
 } from '@/lib/notifications/enqueue';
-import { proposeConnectorSlots, pickLeastLoadedConnector } from '@/lib/connectors/match';
+import { listConnectorSlots, pickLeastLoadedConnector } from '@/lib/connectors/match';
 import { createBooking } from '@/lib/scheduling/services/bookings';
 import type {
   AssessmentKind,
@@ -316,16 +316,17 @@ export async function bookMatchedConnectorSlot(
     return { ok: false, error: 'Participant has no campus assigned.' };
   }
 
-  // Re-run matching server-side (the client's list could be stale).
-  const proposals = await proposeConnectorSlots(admin, {
+  // Re-run matching server-side against the FULL availability set (the client
+  // may have picked any time from the "see all" list, not just the 3 proposals).
+  const available = await listConnectorSlots(admin, {
     campusId: participant.campus_id,
     appointmentTypeId: step.appointment_type_id,
   });
 
-  // Find the chosen slot in the fresh proposals. We compare on the wall-clock
+  // Find the chosen slot in the fresh set. We compare on the wall-clock
   // start; minor formatting drift is tolerated by canonicalizing to ISO.
   const chosenIso = new Date(startsAtIso).toISOString();
-  const match = proposals.find((p) => p.starts_at === chosenIso);
+  const match = available.find((p) => p.starts_at === chosenIso);
 
   if (!match || match.eligible_connector_ids.length === 0) {
     return {

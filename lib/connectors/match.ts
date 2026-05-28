@@ -29,22 +29,18 @@ export interface ProposeSlotsInput {
 
 /**
  * Aggregates availability across every active connector at a campus and
- * returns up to N proposed slots, each annotated with the connectors who
- * are free at that exact time. The participant picks a slot; the booker
- * resolves the actual connector at booking time (least-loaded wins).
+ * returns ALL available slots chronologically, each annotated with the
+ * connectors free at that exact time. This is the source of truth for both
+ * the "see all times" list and booking validation.
  *
- * Spreading rule: prefer slots on distinct days, then distinct hour-buckets
- * within a day, so the three picks don't all sit in the same morning.
- *
- * Returns an empty array if no connectors are configured or no overlap
+ * Returns an empty array if no connectors are configured or no availability
  * exists in the window.
  */
-export async function proposeConnectorSlots(
+export async function listConnectorSlots(
   admin: SupabaseClient,
   input: ProposeSlotsInput,
 ): Promise<ProposedSlot[]> {
   const daysAhead = input.daysAhead ?? 14;
-  const count = input.count ?? 3;
   const now = input.now ?? new Date();
   const dateFrom = now;
   const dateTo = addDays(now, daysAhead);
@@ -142,10 +138,31 @@ export async function proposeConnectorSlots(
     }
   }
 
-  // 4. Sort slots chronologically; spread across days/hours.
-  const sorted = Array.from(slotMap.entries()).sort(([a], [b]) =>
-    a < b ? -1 : a > b ? 1 : 0,
-  );
+  return Array.from(slotMap.entries())
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, val]) => ({
+      starts_at: key,
+      ends_at: val.ends_at,
+      eligible_connector_ids: val.connectorIds,
+    }));
+}
+
+/**
+ * Picks up to N proposed slots from the full availability set, spread across
+ * distinct days then distinct hour-buckets so the picks don't all sit in the
+ * same morning. The participant picks one; the booker resolves the actual
+ * connector at booking time (least-loaded wins).
+ */
+export async function proposeConnectorSlots(
+  admin: SupabaseClient,
+  input: ProposeSlotsInput,
+): Promise<ProposedSlot[]> {
+  const count = input.count ?? 3;
+  const all = await listConnectorSlots(admin, input);
+  if (all.length === 0) return [];
+
+  // Sorted chronologically already.
+  const sorted = all.map((s) => [s.starts_at, { ends_at: s.ends_at, connectorIds: s.eligible_connector_ids }] as const);
 
   const picks: ProposedSlot[] = [];
   const usedDays = new Set<string>();

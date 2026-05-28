@@ -22,7 +22,7 @@ import { VideoEmbed } from './video-embed';
 import { AssessmentForm } from './assessment-form';
 import { AssessmentResults } from './assessment-results';
 import { ConnectorSlotPicker } from './connector-slot-picker';
-import { proposeConnectorSlots, type ProposedSlot } from '@/lib/connectors/match';
+import { proposeConnectorSlots, listConnectorSlots, type ProposedSlot } from '@/lib/connectors/match';
 import type { FlowStepType, FlowOutputKind } from '@/lib/flows/types';
 import type {
   AssessmentDefinition,
@@ -155,6 +155,7 @@ export default async function JourneyStepPage({
   }
 
   let proposedSlots: ProposedSlot[] = [];
+  let allSlots: { starts_at: string; ends_at: string }[] = [];
   if (
     step.step_type === 'schedule'
     && step.output_kind === 'auto_match_connector'
@@ -163,10 +164,16 @@ export default async function JourneyStepPage({
     && !booking
   ) {
     const admin = await createServiceRoleClient();
-    proposedSlots = await proposeConnectorSlots(admin, {
+    const slotArgs = {
       campusId: progress.participant.campus_id,
       appointmentTypeId: step.appointment_type_id,
-    });
+    };
+    const [proposed, all] = await Promise.all([
+      proposeConnectorSlots(admin, slotArgs),
+      listConnectorSlots(admin, slotArgs),
+    ]);
+    proposedSlots = proposed;
+    allSlots = all.map((s) => ({ starts_at: s.starts_at, ends_at: s.ends_at }));
   }
 
   const existingResponses = new Map<string, unknown>();
@@ -269,13 +276,8 @@ export default async function JourneyStepPage({
               </div>
             ) : step.output_kind === 'auto_match_connector' ? (
               <ConnectorSlotPicker
-                progressId={progress.id}
                 proposedSlots={proposedSlots}
-                fallbackHref={
-                  step.appointment_type_id
-                    ? `/scheduling/new-booking?type=${step.appointment_type_id}&progress=${progress.id}`
-                    : '/scheduling/new-booking'
-                }
+                allSlots={allSlots}
                 bookAction={bookAction}
               />
             ) : (
