@@ -117,6 +117,16 @@ export default async function ParticipantDetailPage({
                 <dt className="text-foreground-muted">Phone</dt>
                 <dd className="text-foreground">{participant.phone ?? '—'}</dd>
               </div>
+              <div className="flex items-center justify-between">
+                <dt className="text-foreground-muted">Texts</dt>
+                <dd>
+                  {participant.sms_consent_at ? (
+                    <Badge tone="success">Opted in</Badge>
+                  ) : (
+                    <span className="text-foreground-subtle">Not opted in</span>
+                  )}
+                </dd>
+              </div>
               <div className="flex justify-between">
                 <dt className="text-foreground-muted">Added</dt>
                 <dd className="text-foreground">

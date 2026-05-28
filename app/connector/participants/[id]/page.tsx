@@ -5,6 +5,8 @@ import {
   Check,
   Lock,
   Mail,
+  Phone,
+  MessageSquare,
   CalendarDays,
   ClipboardList,
   Sparkles,
@@ -42,6 +44,8 @@ interface ParticipantData {
   first_name: string;
   last_name: string;
   email: string | null;
+  phone: string | null;
+  sms_consent_at: string | null;
   status: string;
   signed_up_at: string | null;
   last_action_at: string | null;
@@ -70,7 +74,7 @@ export default async function ConnectorParticipantPage({
   const { data } = await supabase
     .from('participants')
     .select(
-      `id, first_name, last_name, email, status, signed_up_at, last_action_at,
+      `id, first_name, last_name, email, phone, sms_consent_at, status, signed_up_at, last_action_at,
        campus:campuses(id, name),
        progress:participant_progress(
          id, status, completed_at, scheduled_event_id,
@@ -201,6 +205,28 @@ export default async function ConnectorParticipantPage({
               <Mail className="h-3 w-3" />
               {participant.email}
             </a>
+          )}
+          {participant.phone && (
+            <span className="inline-flex items-center gap-1 text-xs">
+              <Phone className="h-3 w-3 text-foreground-subtle" />
+              {participant.sms_consent_at ? (
+                <a
+                  href={`sms:${participant.phone}`}
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                  title="Opted in to text messages"
+                >
+                  {participant.phone}
+                  <MessageSquare className="h-3 w-3" />
+                </a>
+              ) : (
+                <span
+                  className="text-foreground-subtle"
+                  title="Has not opted in to text messages — do not text"
+                >
+                  {participant.phone} · no SMS consent
+                </span>
+              )}
+            </span>
           )}
         </div>
       </div>

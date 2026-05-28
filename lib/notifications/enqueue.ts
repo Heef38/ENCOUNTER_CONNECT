@@ -122,6 +122,28 @@ interface ParticipantContext {
   church_id: string;
   assigned_connector_id: string | null;
   current_step_id: string | null;
+  sms_consent_at: string | null;
+}
+
+/**
+ * Single enforcement point for participant SMS consent. A participant-facing
+ * message may only go out by SMS when the participant has opted in
+ * (`sms_consent_at` set) AND has a number on file. Returns `ok: false` to
+ * tell the caller to skip enqueuing the row entirely, so we never create an
+ * outbox row that would text someone who didn't consent.
+ */
+function resolveParticipantDelivery(
+  channel: NotificationChannel,
+  participant: { email: string | null; phone: string | null; sms_consent_at: string | null },
+): { ok: boolean; recipientPhone: string | null } {
+  if (channel === 'sms') {
+    if (participant.sms_consent_at && participant.phone) {
+      return { ok: true, recipientPhone: participant.phone };
+    }
+    return { ok: false, recipientPhone: null };
+  }
+  // Email (the default for any non-SMS channel) just needs an address.
+  return { ok: Boolean(participant.email), recipientPhone: null };
 }
 
 interface ConnectorContact {
@@ -142,7 +164,7 @@ export async function enqueueStepCompletionNotice(
   const { data: participantRow } = await admin
     .from('participants')
     .select(
-      'id, first_name, last_name, email, phone, church_id, assigned_connector_id, current_step_id',
+      'id, first_name, last_name, email, phone, church_id, assigned_connector_id, current_step_id, sms_consent_at',
     )
     .eq('id', participantId)
     .maybeSingle();
@@ -229,7 +251,7 @@ export async function enqueueMeetingScheduled(
   const [participantResult, connectorResult] = await Promise.all([
     admin
       .from('participants')
-      .select('id, first_name, last_name, email, phone, church_id')
+      .select('id, first_name, last_name, email, phone, church_id, sms_consent_at')
       .eq('id', args.participantId)
       .maybeSingle(),
     admin
@@ -296,19 +318,21 @@ export async function enqueueMeetingScheduled(
     }
   }
 
-  if (notifyParticipant && participant.email) {
+  if (notifyParticipant) {
     const tpl = await loadTemplate(
       admin,
       participant.church_id,
       'meeting_scheduled_to_participant',
     );
-    if (tpl) {
+    const delivery = tpl && resolveParticipantDelivery(tpl.channel, participant);
+    if (tpl && delivery && delivery.ok) {
       await admin.from('notification_outbox').insert({
         church_id: participant.church_id,
         participant_id: participant.id,
         template_key: 'meeting_scheduled_to_participant',
         channel: tpl.channel,
         recipient_email: participant.email,
+        recipient_phone: delivery.recipientPhone,
         recipient_name: participantName || null,
         subject: tpl.subject ? render(tpl.subject, baseVars) : null,
         body: render(tpl.body, baseVars),
@@ -336,7 +360,7 @@ export async function enqueueMeetingDecision(
   const [participantResult, connectorResult] = await Promise.all([
     admin
       .from('participants')
-      .select('id, first_name, last_name, email, phone, church_id')
+      .select('id, first_name, last_name, email, phone, church_id, sms_consent_at')
       .eq('id', args.participantId)
       .maybeSingle(),
     admin
@@ -349,7 +373,7 @@ export async function enqueueMeetingDecision(
   ]);
 
   const participant = participantResult.data as ParticipantContext | null;
-  if (!participant?.email) return;
+  if (!participant) return;
   const connectorProfile =
     (connectorResult.data as { profile: ConnectorContact | null } | null)?.profile ?? null;
   const connectorName = connectorProfile
@@ -372,6 +396,9 @@ export async function enqueueMeetingDecision(
   const tpl = await loadTemplate(admin, participant.church_id, key);
   if (!tpl) return;
 
+  const delivery = resolveParticipantDelivery(tpl.channel, participant);
+  if (!delivery.ok) return;
+
   const vars: Record<string, string> = {
     participant_name: `${participant.first_name} ${participant.last_name}`.trim(),
     participant_first_name: participant.first_name,
@@ -385,6 +412,7 @@ export async function enqueueMeetingDecision(
     template_key: key,
     channel: tpl.channel,
     recipient_email: participant.email,
+    recipient_phone: delivery.recipientPhone,
     recipient_name: vars.participant_name || null,
     subject: tpl.subject ? render(tpl.subject, vars) : null,
     body: render(tpl.body, vars),
@@ -431,7 +459,7 @@ export async function enqueueStaleReminders(
     .select(
       `id, participant_id, flow_step_id, status, updated_at,
        participant:participants!inner(
-         id, church_id, first_name, last_name, email, phone, status
+         id, church_id, first_name, last_name, email, phone, status, sms_consent_at
        ),
        flow_step:flow_steps!inner(id, title)`,
     )
@@ -450,6 +478,7 @@ export async function enqueueStaleReminders(
       email: string | null;
       phone: string | null;
       status: string;
+      sms_consent_at: string | null;
     };
     flow_step: { id: string; title: string };
   };
@@ -475,7 +504,6 @@ export async function enqueueStaleReminders(
     if (row.participant.status === 'inactive' || row.participant.status === 'completed') {
       continue;
     }
-    if (!row.participant.email) continue; // need an address to send
 
     churches.add(row.participant.church_id);
 
@@ -491,6 +519,10 @@ export async function enqueueStaleReminders(
       const template = await getTemplate(row.participant.church_id, tier.key);
       if (!template) continue;
 
+      // Honor SMS consent: an SMS reminder only goes to opted-in participants.
+      const delivery = resolveParticipantDelivery(template.channel, row.participant);
+      if (!delivery.ok) continue;
+
       const vars: Record<string, string> = {
         participant_name: `${row.participant.first_name} ${row.participant.last_name}`.trim(),
         participant_first_name: row.participant.first_name,
@@ -504,7 +536,7 @@ export async function enqueueStaleReminders(
         template_key: tier.key,
         channel: template.channel,
         recipient_email: row.participant.email,
-        recipient_phone: row.participant.phone,
+        recipient_phone: delivery.recipientPhone,
         recipient_name:
           `${row.participant.first_name} ${row.participant.last_name}`.trim() || null,
         subject: template.subject ? render(template.subject, vars) : null,

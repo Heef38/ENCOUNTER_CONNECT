@@ -41,6 +41,7 @@ interface Row {
   last_name: string;
   email: string | null;
   phone: string | null;
+  sms_consent_at: string | null;
   status: ParticipantStatus;
   signed_up_at: string | null;
   last_action_at: string | null;
@@ -96,7 +97,7 @@ export default async function ParticipantsPage({
   let q = supabase
     .from('participants')
     .select(
-      `id, first_name, last_name, email, phone, status,
+      `id, first_name, last_name, email, phone, sms_consent_at, status,
        signed_up_at, last_action_at, created_at, current_step_id,
        campus:campuses(id, name),
        current_step:flow_steps!participants_current_step_id_fkey(id, title, order_index),
@@ -245,7 +246,19 @@ export default async function ParticipantsPage({
                   <TD className="text-foreground-muted">
                     {p.campus?.name ?? '—'}
                   </TD>
-                  <TD className="text-foreground-muted">{contact}</TD>
+                  <TD className="text-foreground-muted">
+                    <span className="inline-flex items-center gap-1.5">
+                      {contact}
+                      {p.sms_consent_at && (
+                        <span
+                          title="Opted in to text messages"
+                          className="rounded bg-success-bg px-1 text-[10px] font-semibold uppercase tracking-wide text-success"
+                        >
+                          SMS
+                        </span>
+                      )}
+                    </span>
+                  </TD>
                   <TD className="text-foreground-muted">
                     {formatDate(signedUp)}
                   </TD>
