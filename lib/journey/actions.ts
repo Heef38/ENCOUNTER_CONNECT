@@ -316,6 +316,16 @@ export async function bookMatchedConnectorSlot(
     return { ok: false, error: 'Participant has no campus assigned.' };
   }
 
+  // Guard against double-booking: one schedule step holds a single meeting.
+  const { data: progRow } = await admin
+    .from('participant_progress')
+    .select('scheduled_event_id')
+    .eq('id', progressId)
+    .maybeSingle();
+  if (progRow?.scheduled_event_id) {
+    return { ok: false, error: 'A meeting is already scheduled for this step.' };
+  }
+
   // Re-run matching server-side against the FULL availability set (the client
   // may have picked any time from the "see all" list, not just the 3 proposals).
   const available = await listConnectorSlots(admin, {

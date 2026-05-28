@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Check, CalendarCheck } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface Slot {
   starts_at: string;
@@ -34,7 +35,9 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [selectedIso, setSelectedIso] = useState<string | null>(null);
+  // The time the participant tapped, awaiting confirmation.
+  const [choice, setChoice] = useState<string | null>(null);
+  const [booked, setBooked] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
 
@@ -43,18 +46,25 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
     setOpenDay(null);
   }
 
-  function book(iso: string) {
+  // Selecting a time does NOT book it — it opens a confirmation step.
+  function choose(iso: string) {
     setError(null);
-    setSelectedIso(iso);
+    setChoice(iso);
+    closePopover();
+  }
+
+  function confirm() {
+    if (!choice) return;
+    setError(null);
     startTransition(async () => {
-      const result = await bookAction(iso);
+      const result = await bookAction(choice);
       if (!result.ok) {
-        setError(result.error ?? 'Booking failed.');
-        setSelectedIso(null);
+        setError(result.error ?? 'Booking failed. Please choose another time.');
+        setChoice(null);
         return;
       }
-      closePopover();
-      // Re-render the step so the new booking shows ("Booking on file").
+      setBooked(true);
+      // Re-render the step so the persistent "scheduled" card shows.
       router.refresh();
     });
   }
@@ -68,6 +78,57 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
     else byDay.set(key, [s]);
   }
 
+  // ── Booked confirmation ──────────────────────────────────────
+  if (booked && choice) {
+    return (
+      <div className="rounded-lg border border-success/40 bg-success-bg/50 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-success/15 text-success">
+            <CalendarCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="font-medium text-foreground">Your meeting is booked</p>
+            <p className="mt-0.5 text-sm text-foreground-muted">
+              {fmtDay(choice)} at {fmtTime(choice)}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Confirmation step ────────────────────────────────────────
+  if (choice) {
+    return (
+      <div className="space-y-4 rounded-lg border-2 border-primary bg-primary/5 p-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+            Confirm your meeting
+          </p>
+          <p className="mt-1 text-lg font-semibold text-foreground">{fmtDay(choice)}</p>
+          <p className="text-sm text-foreground-muted">{fmtTime(choice)}</p>
+        </div>
+
+        {error && (
+          <p className="rounded-md border border-danger/40 bg-danger-bg px-3 py-2 text-sm text-danger">
+            {error}
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={confirm} disabled={pending}>
+            <Check className="h-4 w-4" />
+            {pending ? 'Booking…' : 'Confirm this time'}
+          </Button>
+          <Button variant="outline" onClick={() => setChoice(null)} disabled={pending}>
+            Choose a different time
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Slot selection ───────────────────────────────────────────
   return (
     <div className="space-y-3">
       {proposedSlots.length === 0 ? (
@@ -82,29 +143,21 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
             free then.
           </p>
           <ul className="space-y-2">
-            {proposedSlots.map((slot) => {
-              const isSelected = selectedIso === slot.starts_at;
-              return (
-                <li key={slot.starts_at}>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => book(slot.starts_at)}
-                    className={`flex w-full items-center justify-between rounded-md border px-4 py-3 text-left transition disabled:opacity-50 ${
-                      isSelected
-                        ? 'border-primary bg-primary/10'
-                        : 'border-border bg-surface hover:border-primary/60 hover:bg-primary/5'
-                    }`}
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{fmtDay(slot.starts_at)}</p>
-                      <p className="text-sm text-foreground-muted">{fmtTime(slot.starts_at)}</p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-foreground-subtle" />
-                  </button>
-                </li>
-              );
-            })}
+            {proposedSlots.map((slot) => (
+              <li key={slot.starts_at}>
+                <button
+                  type="button"
+                  onClick={() => choose(slot.starts_at)}
+                  className="flex w-full items-center justify-between rounded-md border border-border bg-surface px-4 py-3 text-left transition hover:border-primary/60 hover:bg-primary/5"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{fmtDay(slot.starts_at)}</p>
+                    <p className="text-sm text-foreground-muted">{fmtTime(slot.starts_at)}</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-foreground-subtle" />
+                </button>
+              </li>
+            ))}
           </ul>
         </>
       )}
@@ -166,13 +219,8 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
                     <button
                       key={s.starts_at}
                       type="button"
-                      disabled={pending}
-                      onClick={() => book(s.starts_at)}
-                      className={`rounded-md border px-2.5 py-1 text-sm transition disabled:opacity-50 ${
-                        selectedIso === s.starts_at
-                          ? 'border-primary bg-primary/10'
-                          : 'border-border bg-surface hover:border-primary/60 hover:bg-primary/5'
-                      }`}
+                      onClick={() => choose(s.starts_at)}
+                      className="rounded-md border border-border bg-surface px-2.5 py-1 text-sm transition hover:border-primary/60 hover:bg-primary/5"
                     >
                       {fmtTime(s.starts_at)}
                     </button>
@@ -201,8 +249,6 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
           </div>
         )}
       </div>
-
-      {pending && <p className="text-xs text-foreground-subtle">Booking your time…</p>}
     </div>
   );
 }

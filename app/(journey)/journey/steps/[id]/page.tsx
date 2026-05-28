@@ -263,16 +263,21 @@ export default async function JourneyStepPage({
             )}
 
             {booking ? (
-              <div className="rounded-md border border-success/40 bg-success-bg/50 p-3 text-sm">
-                <p className="font-medium text-foreground">Booking on file</p>
-                <p className="text-foreground-muted">
-                  {new Date(booking.starts_at).toLocaleString(undefined, {
-                    dateStyle: 'medium',
-                    timeStyle: 'short',
-                  })}
-                  {' · '}
-                  {booking.status}
-                </p>
+              <div className="rounded-lg border border-success/40 bg-success-bg/50 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-success/15 text-success">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">Your meeting is scheduled</p>
+                    <p className="mt-0.5 text-sm text-foreground-muted">
+                      {new Date(booking.starts_at).toLocaleString(undefined, {
+                        dateStyle: 'full',
+                        timeStyle: 'short',
+                      })}
+                    </p>
+                  </div>
+                </div>
               </div>
             ) : step.output_kind === 'auto_match_connector' ? (
               <ConnectorSlotPicker
