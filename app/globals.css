@@ -10,8 +10,8 @@
    ───────────────────────────────────────────────────────────── */
 
 :root {
-  /* Canvas — warm-tinted near-black */
-  --background:    #0e1414;
+  /* Canvas — black with slightly lifted surfaces for depth */
+  --background:    #000000;
   --surface:       #161d1d;
   --surface-muted: #1f2828;
 
