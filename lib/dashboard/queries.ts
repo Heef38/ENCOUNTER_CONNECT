@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import type { SessionUser } from '@/lib/auth/dal';
 
 export interface DashboardContext {
@@ -136,6 +136,7 @@ interface ProgressBookingRow {
     first_name: string;
     last_name: string;
     assigned_connector_id: string | null;
+    church_id: string;
   } | null;
   booking: {
     id: string;
@@ -154,13 +155,19 @@ export async function getMonthBookings(
   monthEnd: Date,
   scope: 'all' | 'mine',
 ): Promise<CalendarEvent[]> {
-  const supabase = await createServerSupabaseClient();
+  // Service-role: bookings aren't readable by EC staff under RLS (the inner
+  // embed would drop every row). Scope + month-filter in JS to stay tenant-safe
+  // and avoid unreliable embedded-column filters.
+  const supabase = await createServiceRoleClient();
+  const churchId = ctx.session.profile?.is_platform_admin
+    ? null
+    : ctx.session.profile?.church_id ?? null;
 
-  let q = supabase
+  const { data } = await supabase
     .from('participant_progress')
     .select(
       `scheduled_event_id,
-       participant:participants!inner(id, first_name, last_name, assigned_connector_id),
+       participant:participants!inner(id, first_name, last_name, assigned_connector_id, church_id),
        booking:scheduling_bookings!inner(
          id, title, starts_at, ends_at, display_color,
          location:scheduling_locations(name),
@@ -168,18 +175,20 @@ export async function getMonthBookings(
        )`,
     )
     .not('scheduled_event_id', 'is', null)
-    .gte('booking.starts_at', monthStart.toISOString())
-    .lt('booking.starts_at', monthEnd.toISOString());
+    .limit(500);
 
-  if (scope === 'mine' && ctx.myConnectorId) {
-    q = q.eq('participant.assigned_connector_id', ctx.myConnectorId);
-  }
-
-  const { data } = await q;
   const rows = (data ?? []) as unknown as ProgressBookingRow[];
+  const startMs = monthStart.getTime();
+  const endMs = monthEnd.getTime();
 
   return rows
     .filter((r) => r.booking && r.participant)
+    .filter((r) => churchId === null || r.participant!.church_id === churchId)
+    .filter((r) => {
+      const t = new Date(r.booking!.starts_at).getTime();
+      return t >= startMs && t < endMs;
+    })
+    .filter((r) => scope !== 'mine' || !ctx.myConnectorId || r.participant!.assigned_connector_id === ctx.myConnectorId)
     .map((r) => ({
       id: r.booking!.id,
       title: r.booking!.title ?? 'Appointment',
@@ -247,6 +256,101 @@ export async function getMyPlate(ctx: DashboardContext): Promise<PlateItem[]> {
       return b.ageDays - a.ageDays;
     })
     .slice(0, 10);
+}
+
+export interface ActivityItem {
+  id: string;
+  at: string;
+  title: string;
+  detail: string | null;
+  tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+}
+
+function humanize(s: string): string {
+  const t = s.replace(/[._]/g, ' ').trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+}
+
+/**
+ * Recent activity for the dashboard: notifications that went out (or are
+ * queued/failed) plus audit-log status updates, newest first. Church-scoped
+ * via RLS + an explicit filter; platform admins see all.
+ */
+export async function getRecentActivity(ctx: DashboardContext): Promise<ActivityItem[]> {
+  const supabase = await createServerSupabaseClient();
+  const churchId = ctx.session.profile?.is_platform_admin
+    ? null
+    : ctx.session.profile?.church_id ?? null;
+
+  let notifQ = supabase
+    .from('notification_outbox')
+    .select(
+      'id, created_at, status, channel, recipient_name, recipient_email, recipient_phone, subject, template_key',
+    )
+    .order('created_at', { ascending: false })
+    .limit(12);
+  if (churchId) notifQ = notifQ.eq('church_id', churchId);
+
+  let auditQ = supabase
+    .from('audit_log')
+    .select('id, created_at, action, entity_type, actor_label')
+    .order('created_at', { ascending: false })
+    .limit(12);
+  if (churchId) auditQ = auditQ.eq('church_id', churchId);
+
+  const [{ data: notifs }, { data: audits }] = await Promise.all([notifQ, auditQ]);
+
+  const notifTone = (status: string): ActivityItem['tone'] =>
+    status === 'sent'
+      ? 'success'
+      : status === 'failed'
+        ? 'danger'
+        : status === 'skipped'
+          ? 'neutral'
+          : 'info';
+
+  const items: ActivityItem[] = [];
+
+  for (const n of notifs ?? []) {
+    const row = n as {
+      id: string;
+      created_at: string;
+      status: string;
+      channel: string;
+      recipient_name: string | null;
+      recipient_email: string | null;
+      recipient_phone: string | null;
+      subject: string | null;
+      template_key: string | null;
+    };
+    const recipient = row.recipient_name ?? row.recipient_email ?? row.recipient_phone ?? 'someone';
+    items.push({
+      id: `n_${row.id}`,
+      at: row.created_at,
+      title: row.subject ?? humanize(row.template_key ?? 'Notification'),
+      detail: `${row.channel} → ${recipient} · ${row.status}`,
+      tone: notifTone(row.status),
+    });
+  }
+
+  for (const a of audits ?? []) {
+    const row = a as {
+      id: string;
+      created_at: string;
+      action: string;
+      entity_type: string | null;
+      actor_label: string | null;
+    };
+    items.push({
+      id: `a_${row.id}`,
+      at: row.created_at,
+      title: humanize(row.action),
+      detail: [row.entity_type, row.actor_label].filter(Boolean).join(' · ') || null,
+      tone: 'neutral',
+    });
+  }
+
+  return items.sort((x, y) => (x.at < y.at ? 1 : -1)).slice(0, 15);
 }
 
 export async function getNeedsAttention(ctx: DashboardContext): Promise<NeedsAttention> {

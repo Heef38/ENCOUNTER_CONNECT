@@ -6,7 +6,7 @@ import { MonthCalendar } from '@/components/dashboard/month-calendar';
 import {
   ConnectorLoad,
   InProgressTable,
-  NeedsAttentionPanel,
+  RecentActivityPanel,
   Pills,
   Plate,
 } from '@/components/dashboard/sections';
@@ -16,7 +16,7 @@ import {
   getInProgressConnections,
   getMonthBookings,
   getMyPlate,
-  getNeedsAttention,
+  getRecentActivity,
   getPills,
 } from '@/lib/dashboard/queries';
 
@@ -62,11 +62,11 @@ export default async function DashboardPage({
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 1);
 
-  const [pills, events, plate, attention, connectorLoad, inProgress] = await Promise.all([
+  const [pills, events, plate, activity, connectorLoad, inProgress] = await Promise.all([
     getPills(ctx),
     getMonthBookings(ctx, monthStart, monthEnd, scope),
     ctx.isConnector ? getMyPlate(ctx) : Promise.resolve([]),
-    getNeedsAttention(ctx),
+    getRecentActivity(ctx),
     getConnectorLoad(ctx),
     getInProgressConnections(ctx),
   ]);
@@ -112,7 +112,7 @@ export default async function DashboardPage({
 
       <Pills pills={pills} showAttention={ctx.isAdmin} />
 
-      {ctx.isAdmin && <NeedsAttentionPanel data={attention} />}
+      {ctx.isAdmin && <RecentActivityPanel items={activity} />}
 
       <MonthCalendar
         year={year}

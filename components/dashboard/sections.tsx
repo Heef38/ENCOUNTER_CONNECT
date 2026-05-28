@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import type {
+  ActivityItem,
   ConnectorLoadRow,
   DashboardPills,
   InProgressRow,
@@ -154,6 +155,48 @@ export function Plate({ items }: { items: PlateItem[] }) {
 }
 
 // ── Needs attention (admin) ─────────────────────────────────────
+
+export function RecentActivityPanel({ items }: { items: ActivityItem[] }) {
+  return (
+    <section className="rounded-lg border border-border bg-surface shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+        <Clock className="h-4 w-4 text-foreground-subtle" />
+        <h2 className="text-sm font-semibold text-foreground">Recent activity</h2>
+      </div>
+      {items.length === 0 ? (
+        <p className="px-5 py-6 text-center text-sm text-foreground-muted">
+          Nothing yet. Notifications and status updates will appear here as they happen.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {items.map((it) => (
+            <li key={it.id} className="flex items-start gap-3 px-5 py-3">
+              <span
+                className={cn(
+                  'mt-1.5 h-2 w-2 flex-none rounded-full',
+                  it.tone === 'success' && 'bg-success',
+                  it.tone === 'danger' && 'bg-danger',
+                  it.tone === 'warning' && 'bg-warning',
+                  it.tone === 'info' && 'bg-info',
+                  it.tone === 'neutral' && 'bg-border-strong',
+                )}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-foreground">{it.title}</p>
+                {it.detail && (
+                  <p className="truncate text-xs text-foreground-muted">{it.detail}</p>
+                )}
+              </div>
+              <span className="flex-none text-xs text-foreground-subtle">
+                {formatRelative(it.at)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 export function NeedsAttentionPanel({ data }: { data: NeedsAttention }) {
   const buckets = [
