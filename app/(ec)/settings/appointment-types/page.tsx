@@ -1,8 +1,9 @@
 import Link from 'next/link';
-import { ChevronLeft } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { requireChurchAdmin } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { hashColor } from '@/lib/dashboard/colors';
 import { ColorPicker } from './color-picker';
@@ -29,21 +30,23 @@ export default async function AppointmentTypesSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href="/settings"
-          className="mb-1 inline-flex items-center gap-1 text-xs text-foreground-subtle hover:text-foreground"
-        >
-          <ChevronLeft className="h-3 w-3" />
-          Settings
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+            Appointment Types
+          </h1>
+          <p className="mt-1 text-sm text-foreground-muted">
+            Configure the appointments your flows can schedule — duration, notice, and
+            whether a connector must confirm. Pick a color so calendar entries match your
+            scheme.
+          </p>
+        </div>
+        <Link href="/settings/appointment-types/new">
+          <Button size="md">
+            <Plus className="h-4 w-4" />
+            New appointment type
+          </Button>
         </Link>
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
-          Appointment Types
-        </h1>
-        <p className="mt-1 text-sm text-foreground-muted">
-          Configure the appointments your flows can schedule. Pick a color so calendar
-          entries match your visual scheme.
-        </p>
       </div>
 
       {error && (
@@ -56,9 +59,14 @@ export default async function AppointmentTypesSettingsPage() {
         <div className="rounded-lg border border-dashed border-border-strong bg-surface p-10 text-center">
           <p className="text-sm font-medium text-foreground">No appointment types yet</p>
           <p className="mt-1 text-sm text-foreground-muted">
-            Appointment types live in the scheduling system. Create one in Scheduling first,
-            then return here to color it.
+            Create your first one to let flows schedule meetings.
           </p>
+          <Link href="/settings/appointment-types/new" className="mt-3 inline-block">
+            <Button size="sm">
+              <Plus className="h-4 w-4" />
+              New appointment type
+            </Button>
+          </Link>
         </div>
       ) : (
         <div className="rounded-lg border border-border bg-surface shadow-sm">
@@ -75,7 +83,12 @@ export default async function AppointmentTypesSettingsPage() {
               {types.map((t) => (
                 <TR key={t.id}>
                   <TD>
-                    <div className="font-medium text-foreground">{t.name}</div>
+                    <Link
+                      href={`/settings/appointment-types/${t.id}`}
+                      className="font-medium text-foreground hover:text-primary"
+                    >
+                      {t.name}
+                    </Link>
                     {!t.is_active && (
                       <div className="mt-0.5 text-xs text-foreground-subtle">Inactive</div>
                     )}
