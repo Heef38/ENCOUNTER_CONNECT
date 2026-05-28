@@ -24,7 +24,7 @@ export default async function LandingPage() {
           <img
             src="/EC.png"
             alt="Encounter Connect"
-            className="h-auto w-100 object-contain md:w-100"
+            className="h-auto w-80 object-contain md:w-100"
           />
 
           <h1 className="mt-8 max-w-xl font-display text-4xl font-semibold leading-tight tracking-tight text-foreground md:text-5xl lg:text-6xl">
