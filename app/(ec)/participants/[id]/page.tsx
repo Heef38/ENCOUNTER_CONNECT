@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { requireStaff } from '@/lib/auth/dal';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { ParticipantAssignmentForm } from '@/components/participants/assignment-form';
 
 const STATUS_TONES: Record<string, 'info' | 'warning' | 'success' | 'neutral' | 'danger'> = {
   new:         'info',
@@ -41,7 +42,7 @@ export default async function ParticipantDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireStaff();
+  const session = await requireStaff();
   const { id } = await params;
   const supabase = await createServerSupabaseClient();
 
@@ -59,6 +60,39 @@ export default async function ParticipantDetailPage({
     .single();
 
   if (error || !participant) notFound();
+
+  // Assignment controls: campus_admin+ can set campus; platform admins can
+  // also move the participant to another church.
+  const role = session.profile?.role;
+  const isPlatform = session.profile?.is_platform_admin ?? false;
+  const canManage = isPlatform || role === 'church_admin' || role === 'campus_admin';
+
+  let churchCampuses: { id: string; name: string }[] = [];
+  let allChurches: { id: string; name: string }[] | null = null;
+  let campusesByChurch: Record<string, { id: string; name: string }[]> | null = null;
+
+  if (canManage) {
+    const { data: cs } = await supabase
+      .from('campuses')
+      .select('id, name')
+      .eq('church_id', participant.church_id)
+      .eq('is_active', true)
+      .order('name');
+    churchCampuses = cs ?? [];
+
+    if (isPlatform) {
+      const [{ data: ch }, { data: allC }] = await Promise.all([
+        supabase.from('churches').select('id, name').eq('is_active', true).order('name'),
+        supabase.from('campuses').select('id, name, church_id').eq('is_active', true).order('name'),
+      ]);
+      allChurches = ch ?? [];
+      campusesByChurch = {};
+      for (const c of allC ?? []) {
+        const key = (c as { church_id: string }).church_id;
+        (campusesByChurch[key] ??= []).push({ id: (c as { id: string }).id, name: (c as { name: string }).name });
+      }
+    }
+  }
 
   const { data: progress } = await supabase
     .from('participant_progress')
@@ -135,6 +169,22 @@ export default async function ParticipantDetailPage({
               </div>
             </dl>
           </div>
+
+          {canManage && (
+            <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
+                Assignment
+              </h2>
+              <ParticipantAssignmentForm
+                participantId={participant.id}
+                churchId={participant.church_id}
+                campusId={participant.campus_id ?? null}
+                campuses={churchCampuses}
+                churches={allChurches}
+                campusesByChurch={campusesByChurch}
+              />
+            </div>
+          )}
 
           <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground-subtle">

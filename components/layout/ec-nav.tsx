@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -71,9 +71,16 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
           </Link>
         </div>
 
-        <nav className="hidden min-w-0 items-end justify-center gap-3 overflow-x-auto whitespace-nowrap md:flex">
-          {groups.map((group) => (
-            <DesktopGroup key={group.key} group={group} />
+        <nav className="hidden min-w-0 items-center justify-center gap-1 overflow-x-auto whitespace-nowrap md:flex">
+          {groups.map((group, gi) => (
+            <Fragment key={group.key}>
+              {gi > 0 && (
+                <span aria-hidden className="px-1 text-foreground-subtle">|</span>
+              )}
+              {group.items.map((item) => (
+                <NavLink key={item.href} item={item} />
+              ))}
+            </Fragment>
           ))}
         </nav>
 
@@ -112,28 +119,6 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
         )}
       </Sheet>
     </header>
-  );
-}
-
-function DesktopGroup({ group }: { group: NavGroupRender }) {
-  const tone = TONE_CLASSES[group.color];
-  return (
-    <div className="relative">
-      <span
-        className={cn(
-          'absolute -top-2 left-2 z-10 rounded px-1.5 text-[10px] font-semibold uppercase tracking-wide',
-          tone.text,
-          tone.bg,
-        )}
-      >
-        {group.label}
-      </span>
-      <div className={cn('flex items-center gap-0.5 rounded-md border bg-surface p-1', tone.border)}>
-        {group.items.map((item) => (
-          <NavLink key={item.href} item={item} />
-        ))}
-      </div>
-    </div>
   );
 }
 

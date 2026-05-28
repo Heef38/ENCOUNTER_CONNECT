@@ -75,14 +75,27 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
   if (!church || !church.is_active) {
     return { ok: false, error: 'This church is not accepting signups right now.' };
   }
-  if (args.campusId) {
+  let campusId = args.campusId ?? null;
+  if (campusId) {
     const { data: campus } = await admin
       .from('campuses')
       .select('id, church_id, is_active')
-      .eq('id', args.campusId)
+      .eq('id', campusId)
       .maybeSingle();
     if (!campus || !campus.is_active || campus.church_id !== args.churchId) {
       return { ok: false, error: 'This campus is not available.' };
+    }
+  } else {
+    // No campus chosen (church-wide signup). If the church has exactly one
+    // active campus, auto-assign it so the participant lands on a campus and
+    // the campus default flow can enroll them.
+    const { data: campuses } = await admin
+      .from('campuses')
+      .select('id')
+      .eq('church_id', args.churchId)
+      .eq('is_active', true);
+    if (campuses && campuses.length === 1) {
+      campusId = (campuses[0] as { id: string }).id;
     }
   }
 
@@ -109,7 +122,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
       id: user.id,
       role: 'participant',
       church_id: args.churchId,
-      campus_id: args.campusId,
+      campus_id: campusId,
       is_platform_admin: false,
       first_name: firstName,
       last_name: lastName,
@@ -127,7 +140,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
     .from('participants')
     .insert({
       church_id: args.churchId,
-      campus_id: args.campusId,
+      campus_id: campusId,
       profile_id: user.id,
       first_name: firstName,
       last_name: lastName,
@@ -150,7 +163,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
   // default; absent either, the journey stays empty and staff can enroll
   // later. Best-effort: enrollment must never fail the signup itself.
   try {
-    const flowId = await resolveDefaultFlowId(admin, args.churchId, args.campusId);
+    const flowId = await resolveDefaultFlowId(admin, args.churchId, campusId);
     if (flowId) {
       const init = await initializeParticipantProgress(admin, participantRow.id, flowId);
       if (init.success) {
@@ -174,7 +187,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
           action: 'participant.enrolled_in_flow',
           entity_type: 'participant',
           entity_id: participantRow.id,
-          metadata: { flow_id: flowId, church_id: args.churchId, campus_id: args.campusId },
+          metadata: { flow_id: flowId, church_id: args.churchId, campus_id: campusId },
         });
       }
     }
@@ -189,7 +202,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
     entity_id: user.id,
     metadata: {
       church_id: args.churchId,
-      campus_id: args.campusId,
+      campus_id: campusId,
       email,
       sms_consent: Boolean(smsConsentAt),
     },
