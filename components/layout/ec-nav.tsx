@@ -62,7 +62,7 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
           </Link>
         </div>
 
-        <nav className="hidden min-w-0 items-center justify-center gap-1 overflow-x-auto whitespace-nowrap md:flex">
+        <nav className="hidden min-w-0 items-center justify-center gap-1 whitespace-nowrap md:flex">
           {groups.map((group, gi) => (
             <Fragment key={group.key}>
               {gi > 0 && (
@@ -187,7 +187,11 @@ function NavDropdown({ item }: { item: NavItem }) {
   const [open, setOpen] = useState(false);
   const children = item.children ?? [];
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -199,30 +203,23 @@ function NavDropdown({ item }: { item: NavItem }) {
         <ChevronDown className="h-3.5 w-3.5" />
       </button>
       {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            onClick={() => setOpen(false)}
-            className="fixed inset-0 z-10 cursor-default"
-          />
-          <div
-            role="menu"
-            className="absolute left-0 top-full z-20 mt-1 min-w-44 overflow-hidden rounded-md border border-border bg-surface py-1 shadow-lg"
-          >
-            {children.map((c) => (
-              <Link
-                key={c.href ?? c.label}
-                href={c.href ?? '#'}
-                onClick={() => setOpen(false)}
-                className="block px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
-              >
-                {c.label}
-              </Link>
-            ))}
-          </div>
-        </>
+        // top-full (no gap) keeps the menu contiguous with the trigger so
+        // hovering down into it doesn't fire mouseleave and close it.
+        <div
+          role="menu"
+          className="absolute left-0 top-full z-50 min-w-44 overflow-hidden rounded-md border border-border bg-surface py-1 shadow-xl"
+        >
+          {children.map((c) => (
+            <Link
+              key={c.href ?? c.label}
+              href={c.href ?? '#'}
+              onClick={() => setOpen(false)}
+              className="block px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
+            >
+              {c.label}
+            </Link>
+          ))}
+        </div>
       )}
     </div>
   );
