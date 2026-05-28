@@ -168,7 +168,7 @@ export function RecentActivityPanel({ items }: { items: ActivityItem[] }) {
           Nothing yet. Notifications and status updates will appear here as they happen.
         </p>
       ) : (
-        <ul className="divide-y divide-border">
+        <ul className="max-h-80 divide-y divide-border overflow-y-auto">
           {items.map((it) => (
             <li key={it.id} className="flex items-start gap-3 px-5 py-3">
               <span
