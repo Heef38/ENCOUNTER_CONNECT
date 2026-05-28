@@ -8,6 +8,7 @@ import {
 import { requireConnector } from '@/lib/auth/dal';
 import { getConnectorParticipantAccess } from '@/lib/connectors/journey-queries';
 import { completeBooking } from '@/lib/scheduling/services/bookings';
+import { syncScheduleStepFromBooking } from '@/lib/flows/engine';
 import { enqueueMeetingNotes } from '@/lib/notifications/enqueue';
 import { recordAudit } from '@/lib/audit/log';
 
@@ -93,7 +94,9 @@ export async function completeMeeting(progressId: string, notes: string): Promis
     .eq('id', progressId);
   if (error) return { ok: false, error: error.message };
 
-  // Mark the booking completed (best-effort — must not block notes sharing).
+  // Mark the booking completed + advance the participant's schedule step so
+  // the journey progresses (and finishes, if this was the last step).
+  // Best-effort — must not block notes sharing.
   if (a.progress.scheduled_event_id) {
     try {
       await completeBooking(a.admin, a.progress.scheduled_event_id, {
@@ -101,8 +104,9 @@ export async function completeMeeting(progressId: string, notes: string): Promis
         kind: 'completed_successfully',
         summary: notes || undefined,
       });
+      await syncScheduleStepFromBooking(a.admin, a.progress.scheduled_event_id);
     } catch (err) {
-      console.error('[meeting] completeBooking failed:', err);
+      console.error('[meeting] completeBooking/advance failed:', err);
     }
   }
 
