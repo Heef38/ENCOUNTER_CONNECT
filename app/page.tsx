@@ -21,7 +21,7 @@ export default async function LandingPage() {
         {/* Hero */}
         <section className="flex flex-col items-center text-center lg:items-start lg:text-left">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/EC.png" alt="Encounter Connect" className="h-16 w-auto md:h-20" />
+          <img src="/EC.png" alt="Encounter Connect" className="h-12 w-auto md:h-20" />
 
           <h1 className="mt-8 max-w-xl font-display text-4xl font-semibold leading-tight tracking-tight text-foreground md:text-5xl lg:text-6xl">
             Connect people to God, community, and next steps.
