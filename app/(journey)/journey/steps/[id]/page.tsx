@@ -332,7 +332,10 @@ export default async function JourneyStepPage({
                 {videoLessons.map((l) => {
                   const embed = toYouTubeEmbed(l.video_url);
                   return (
-                    <li key={l.id} className="overflow-hidden rounded-lg border border-border">
+                    <li
+                      key={l.id}
+                      className="overflow-hidden rounded-lg border border-border md:relative md:left-1/2 md:w-[min(92vw,56rem)] md:-translate-x-1/2"
+                    >
                       {embed ? (
                         <div className="aspect-video w-full bg-black">
                           <iframe

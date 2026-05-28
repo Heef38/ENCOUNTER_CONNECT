@@ -37,7 +37,7 @@ export default async function JourneyLayout({ children }: { children: ReactNode 
 
   return (
     <div
-      className="min-h-[100dvh] bg-background"
+      className="min-h-[100dvh] overflow-x-hidden bg-background md:overflow-x-visible"
       style={accent ? ({ ['--journey-accent' as string]: accent } as React.CSSProperties) : undefined}
     >
       <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col">
