@@ -36,7 +36,7 @@ export default async function NotificationsSettingsPage() {
       ? supabase
           .from('notification_outbox')
           .select(
-            'id, channel, recipient_email, recipient_phone, recipient_name, subject, status, scheduled_for, sent_at, template_key',
+            'id, channel, recipient_email, recipient_phone, recipient_name, subject, status, error, scheduled_for, sent_at, template_key',
           )
           .eq('church_id', churchId)
           .order('created_at', { ascending: false })
@@ -54,6 +54,7 @@ export default async function NotificationsSettingsPage() {
     | 'recipient_name'
     | 'subject'
     | 'status'
+    | 'error'
     | 'scheduled_for'
     | 'sent_at'
     | 'template_key'
@@ -203,6 +204,11 @@ export default async function NotificationsSettingsPage() {
                     </TD>
                     <TD>
                       <Badge tone={TONES[row.status]}>{row.status}</Badge>
+                      {row.status === 'failed' && row.error && (
+                        <p className="mt-1 max-w-[16rem] text-xs text-danger" title={row.error}>
+                          {row.error}
+                        </p>
+                      )}
                     </TD>
                     <TD>
                       <DeleteOutboxButton id={row.id} />
