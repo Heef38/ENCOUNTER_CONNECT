@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 interface Slot {
@@ -30,6 +31,7 @@ function fmtTime(iso: string) {
 }
 
 export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Props) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
@@ -52,7 +54,8 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
         return;
       }
       closePopover();
-      // The step page revalidates on success; nothing else to do here.
+      // Re-render the step so the new booking shows ("Booking on file").
+      router.refresh();
     });
   }
 
