@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { DrainButton } from './drain-button';
+import { DeleteOutboxButton } from './outbox-row-actions';
 import type {
   NotificationTemplate,
   NotificationOutboxRow,
@@ -35,7 +36,7 @@ export default async function NotificationsSettingsPage() {
       ? supabase
           .from('notification_outbox')
           .select(
-            'id, channel, recipient_email, recipient_name, subject, status, scheduled_for, sent_at, template_key',
+            'id, channel, recipient_email, recipient_phone, recipient_name, subject, status, scheduled_for, sent_at, template_key',
           )
           .eq('church_id', churchId)
           .order('created_at', { ascending: false })
@@ -49,6 +50,7 @@ export default async function NotificationsSettingsPage() {
     | 'id'
     | 'channel'
     | 'recipient_email'
+    | 'recipient_phone'
     | 'recipient_name'
     | 'subject'
     | 'status'
@@ -175,6 +177,7 @@ export default async function NotificationsSettingsPage() {
                   <TH>Template</TH>
                   <TH>Subject</TH>
                   <TH>Status</TH>
+                  <TH className="w-10" />
                 </TR>
               </THead>
               <TBody>
@@ -189,7 +192,7 @@ export default async function NotificationsSettingsPage() {
                       })}
                     </TD>
                     <TD className="text-foreground-muted">
-                      {row.recipient_name ?? row.recipient_email ?? '—'}
+                      {row.recipient_name ?? row.recipient_email ?? row.recipient_phone ?? '—'}
                     </TD>
                     <TD className="text-foreground-muted">{row.channel}</TD>
                     <TD className="font-mono text-[11px] text-foreground-subtle">
@@ -200,6 +203,9 @@ export default async function NotificationsSettingsPage() {
                     </TD>
                     <TD>
                       <Badge tone={TONES[row.status]}>{row.status}</Badge>
+                    </TD>
+                    <TD>
+                      <DeleteOutboxButton id={row.id} />
                     </TD>
                   </TR>
                 ))}

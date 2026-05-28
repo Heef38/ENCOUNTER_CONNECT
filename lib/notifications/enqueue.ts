@@ -148,6 +148,7 @@ function resolveParticipantDelivery(
 
 interface ConnectorContact {
   email: string | null;
+  phone: string | null;
   first_name: string | null;
   last_name: string | null;
 }
@@ -257,7 +258,7 @@ export async function enqueueMeetingScheduled(
     admin
       .from('connectors')
       .select(
-        'id, profile:profiles!connectors_profile_id_fkey(first_name, last_name, email)',
+        'id, phone, profile:profiles!connectors_profile_id_fkey(first_name, last_name, email, phone)',
       )
       .eq('id', args.connectorId)
       .maybeSingle(),
@@ -265,8 +266,10 @@ export async function enqueueMeetingScheduled(
 
   const participant = participantResult.data as ParticipantContext | null;
   if (!participant) return;
-  const connectorProfile =
-    (connectorResult.data as { profile: ConnectorContact | null } | null)?.profile ?? null;
+  const connectorRow =
+    (connectorResult.data as { phone: string | null; profile: ConnectorContact | null } | null) ?? null;
+  const connectorProfile = connectorRow?.profile ?? null;
+  const connectorPhone = connectorRow?.phone ?? connectorProfile?.phone ?? null;
 
   const connectorName = connectorProfile
     ? `${connectorProfile.first_name ?? ''} ${connectorProfile.last_name ?? ''}`.trim() || 'your connector'
@@ -316,6 +319,22 @@ export async function enqueueMeetingScheduled(
         metadata: { trigger: 'meeting_scheduled', booking_id: args.bookingId },
       });
     }
+  }
+
+  // Text the connector that a meeting was just scheduled (staff number on file).
+  if (notifyConnector && connectorPhone) {
+    await admin.from('notification_outbox').insert({
+      church_id: participant.church_id,
+      participant_id: participant.id,
+      template_key: 'meeting_scheduled_to_connector',
+      channel: 'sms',
+      recipient_phone: connectorPhone,
+      recipient_name: connectorName,
+      subject: null,
+      body: `${participantName} just scheduled a meeting with you for ${meetingWhen}. Open Encounter Connect to confirm.`,
+      status: 'pending',
+      metadata: { trigger: 'meeting_scheduled', booking_id: args.bookingId, channel_hint: 'connector_sms' },
+    });
   }
 
   if (notifyParticipant) {
@@ -396,29 +415,55 @@ export async function enqueueMeetingDecision(
   const tpl = await loadTemplate(admin, participant.church_id, key);
   if (!tpl) return;
 
-  const delivery = resolveParticipantDelivery(tpl.channel, participant);
-  if (!delivery.ok) return;
-
+  const participantName = `${participant.first_name} ${participant.last_name}`.trim();
   const vars: Record<string, string> = {
-    participant_name: `${participant.first_name} ${participant.last_name}`.trim(),
+    participant_name: participantName,
     participant_first_name: participant.first_name,
     connector_name: connectorName,
     meeting_when: meetingWhen,
   };
 
-  await admin.from('notification_outbox').insert({
-    church_id: participant.church_id,
-    participant_id: participant.id,
-    template_key: key,
-    channel: tpl.channel,
-    recipient_email: participant.email,
-    recipient_phone: delivery.recipientPhone,
-    recipient_name: vars.participant_name || null,
-    subject: tpl.subject ? render(tpl.subject, vars) : null,
-    body: render(tpl.body, vars),
-    status: 'pending',
-    metadata: { trigger: `meeting_${args.decision}`, booking_id: args.bookingId },
-  });
+  // Notify the participant by BOTH email and (if opted in) SMS.
+  const rows: Record<string, unknown>[] = [];
+  const meta = { trigger: `meeting_${args.decision}`, booking_id: args.bookingId };
+
+  if (participant.email) {
+    rows.push({
+      church_id: participant.church_id,
+      participant_id: participant.id,
+      template_key: key,
+      channel: 'email',
+      recipient_email: participant.email,
+      recipient_name: participantName || null,
+      subject: tpl.subject ? render(tpl.subject, vars) : null,
+      body: render(tpl.body, vars),
+      status: 'pending',
+      metadata: meta,
+    });
+  }
+
+  if (participant.sms_consent_at && participant.phone) {
+    const smsBody =
+      args.decision === 'confirmed'
+        ? `${connectorName} confirmed your meeting on ${meetingWhen}. See you then! — Encounter Connect`
+        : `${connectorName} can't make ${meetingWhen}. Open Encounter Connect to pick a new time.`;
+    rows.push({
+      church_id: participant.church_id,
+      participant_id: participant.id,
+      template_key: key,
+      channel: 'sms',
+      recipient_phone: participant.phone,
+      recipient_name: participantName || null,
+      subject: null,
+      body: smsBody,
+      status: 'pending',
+      metadata: meta,
+    });
+  }
+
+  if (rows.length > 0) {
+    await admin.from('notification_outbox').insert(rows);
+  }
 }
 
 interface StaleSweepReport {

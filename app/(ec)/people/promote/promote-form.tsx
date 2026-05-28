@@ -91,6 +91,23 @@ export function PromoteForm({ profiles, campuses, requireCampus, action }: Props
         </select>
       </div>
 
+      <div className="space-y-1.5">
+        <Label htmlFor="phone">
+          Mobile number <span className="text-danger">*</span>
+        </Label>
+        <input
+          id="phone"
+          name="phone"
+          type="tel"
+          required
+          placeholder="(555) 555-5555"
+          className="h-10 w-full rounded-md border border-border bg-surface px-3 text-sm focus:border-primary focus:outline-none"
+        />
+        <p className="text-xs text-foreground-subtle">
+          Required for admins so they can receive operational notifications.
+        </p>
+      </div>
+
       {state && !state.ok && state.error && (
         <div className="rounded-md border border-danger/40 bg-danger-bg px-3 py-2 text-sm text-danger">
           {state.error}

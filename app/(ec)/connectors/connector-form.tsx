@@ -32,6 +32,7 @@ interface Props {
     campus_id?: string | null;
     scheduling_resource_id?: string | null;
     is_active?: boolean;
+    phone?: string | null;
   };
   action: (prev: ActionResult | null, formData: FormData) => Promise<ActionResult>;
   submitLabel: string;
@@ -103,6 +104,24 @@ export function ConnectorForm({
             </div>
           )
         )}
+
+        <div className="space-y-1.5 md:col-span-2">
+          <Label htmlFor="phone">
+            Mobile number <span className="text-danger">*</span>
+          </Label>
+          <input
+            id="phone"
+            name="phone"
+            type="tel"
+            required
+            defaultValue={defaults?.phone ?? ''}
+            placeholder="(555) 555-5555"
+            className="h-10 w-full rounded-md border border-border bg-surface px-3 text-sm focus:border-primary focus:outline-none"
+          />
+          <p className="text-xs text-foreground-subtle">
+            Required. Used to text the connector when a participant schedules a meeting.
+          </p>
+        </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="campus_id">Campus</Label>

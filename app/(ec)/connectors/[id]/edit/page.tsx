@@ -78,6 +78,7 @@ export default async function EditConnectorPage({
           campus_id: connector.campus_id,
           scheduling_resource_id: connector.scheduling_resource_id,
           is_active: connector.is_active,
+          phone: (connector as { phone?: string | null }).phone ?? null,
         }}
         action={update}
         submitLabel="Save changes"

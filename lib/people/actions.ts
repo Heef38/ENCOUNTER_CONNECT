@@ -72,17 +72,33 @@ export async function promoteProfile(formData: FormData): Promise<ActionResult> 
   }
   const role = roleRaw as ECUserRole;
   const campus_id = nullable(formData.get('campus_id'));
+  const phone = nullable(formData.get('phone'));
 
   if (role === 'campus_admin' && !campus_id) {
     return { ok: false, error: 'Campus admins must be assigned to a campus.' };
   }
+  if (!phone) {
+    return { ok: false, error: 'A mobile number is required.' };
+  }
 
   const supabase = await createServerSupabaseClient();
+
+  // Admins must be reachable by email too.
+  const { data: prof } = await supabase
+    .from('profiles')
+    .select('email')
+    .eq('id', profile_id)
+    .maybeSingle();
+  if (!prof?.email) {
+    return { ok: false, error: 'This person needs an email on their profile first.' };
+  }
+
   const { error } = await supabase
     .from('profiles')
     .update({
       role,
       campus_id: role === 'campus_admin' ? campus_id : campus_id,
+      phone,
     })
     .eq('id', profile_id);
 

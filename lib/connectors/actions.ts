@@ -26,11 +26,25 @@ export async function createConnector(formData: FormData): Promise<ActionResult>
   const profile_id = nullable(formData.get('profile_id'));
   if (!profile_id) return { ok: false, error: 'Pick a person.' };
 
+  const phone = nullable(formData.get('phone'));
+  if (!phone) return { ok: false, error: 'A mobile number is required for connectors.' };
+
   const campus_id = nullable(formData.get('campus_id'));
   const scheduling_resource_id = nullable(formData.get('scheduling_resource_id'));
   const is_active = formData.get('is_active') !== 'off';
 
   const supabase = await createServerSupabaseClient();
+
+  // Connectors must be reachable: require an email on the profile too.
+  const { data: prof } = await supabase
+    .from('profiles')
+    .select('email')
+    .eq('id', profile_id)
+    .maybeSingle();
+  if (!prof?.email) {
+    return { ok: false, error: 'This person needs an email on their profile first.' };
+  }
+
   const { data, error } = await supabase
     .from('connectors')
     .insert({
@@ -39,11 +53,15 @@ export async function createConnector(formData: FormData): Promise<ActionResult>
       campus_id,
       scheduling_resource_id,
       is_active,
+      phone,
     })
     .select('id')
     .single();
 
   if (error) return { ok: false, error: error.message };
+
+  // Keep the profile phone in sync so notifications can reach them.
+  await supabase.from('profiles').update({ phone }).eq('id', profile_id);
 
   await recordAudit({
     action: 'connector.create',
@@ -65,14 +83,22 @@ export async function updateConnector(
   const campus_id = nullable(formData.get('campus_id'));
   const scheduling_resource_id = nullable(formData.get('scheduling_resource_id'));
   const is_active = formData.get('is_active') === 'on';
+  const phone = nullable(formData.get('phone'));
+  if (!phone) return { ok: false, error: 'A mobile number is required for connectors.' };
 
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('connectors')
-    .update({ campus_id, scheduling_resource_id, is_active })
-    .eq('id', id);
+    .update({ campus_id, scheduling_resource_id, is_active, phone })
+    .eq('id', id)
+    .select('profile_id')
+    .single();
 
   if (error) return { ok: false, error: error.message };
+
+  if (updated?.profile_id) {
+    await supabase.from('profiles').update({ phone }).eq('id', updated.profile_id);
+  }
 
   await recordAudit({
     action: 'connector.update',

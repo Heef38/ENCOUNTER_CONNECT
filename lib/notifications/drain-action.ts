@@ -41,6 +41,25 @@ export async function drainOutboxNow(): Promise<DrainActionResult> {
 }
 
 /**
+ * Permanently removes an outbox row. Church-scoped (platform admins may
+ * delete any). Used by the queue viewer to clear unwanted/stuck messages.
+ */
+export async function deleteOutboxRow(id: string): Promise<DrainActionResult> {
+  const session = await requireCampusAdmin();
+  const churchId = session.profile?.church_id ?? null;
+
+  const admin = await createServiceRoleClient();
+  let q = admin.from('notification_outbox').delete().eq('id', id);
+  if (churchId) q = q.eq('church_id', churchId);
+  const { error } = await q;
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/settings/notifications');
+  return { ok: true };
+}
+
+/**
  * Resets a `failed` outbox row back to `pending` so it'll be retried on
  * the next drain.
  */
