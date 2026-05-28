@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { requireConnector } from '@/lib/auth/dal';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getConnectorParticipantAccess } from '@/lib/connectors/journey-queries';
 import {
   connectorConfirmBooking,
@@ -146,27 +146,33 @@ export default async function ConnectorParticipantPage({
     categoriesByAssessment,
   });
 
-  // Pending bookings the connector needs to confirm/decline. We pull every
-  // booking linked to this participant's progress that's still pending.
-  type PendingBooking = {
+  // Meetings linked to this participant's progress. Read via service-role —
+  // bookings live in the scheduling core, which connectors can't read under
+  // RLS (access is already gated by getConnectorParticipantAccess above).
+  type Meeting = {
     booking_id: string;
     starts_at: string;
+    status: string;
   };
   const scheduledBookingIds = progress
     .map((p) => (p as ProgressRow & { scheduled_event_id?: string | null }).scheduled_event_id ?? null)
     .filter((id): id is string => !!id);
 
-  let pendingBookings: PendingBooking[] = [];
-  if (access.canWrite && scheduledBookingIds.length > 0) {
-    const { data: bookingRows } = await supabase
+  let meetings: Meeting[] = [];
+  if (scheduledBookingIds.length > 0) {
+    const admin = await createServiceRoleClient();
+    const { data: bookingRows } = await admin
       .from('scheduling_bookings')
       .select('id, starts_at, status')
       .in('id', scheduledBookingIds)
-      .eq('status', 'pending_confirmation');
-    pendingBookings = ((bookingRows ?? []) as Array<{ id: string; starts_at: string }>).map(
-      (b) => ({ booking_id: b.id, starts_at: b.starts_at }),
+      .not('status', 'in', '("cancelled","rescheduled","no_show")')
+      .order('starts_at');
+    meetings = ((bookingRows ?? []) as Array<{ id: string; starts_at: string; status: string }>).map(
+      (b) => ({ booking_id: b.id, starts_at: b.starts_at, status: b.status }),
     );
   }
+  const pendingMeetings = meetings.filter((m) => m.status === 'pending_confirmation');
+  const upcomingMeetings = meetings.filter((m) => m.status !== 'pending_confirmation');
 
   async function confirmAction(bookingId: string) {
     'use server';
@@ -231,16 +237,54 @@ export default async function ConnectorParticipantPage({
         </div>
       </div>
 
-      {pendingBookings.length > 0 && (
+      {meetings.length > 0 && (
         <section className="space-y-3">
-          {pendingBookings.map((b) => (
-            <BookingDecision
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <CalendarDays className="h-4 w-4" />
+            Meeting
+          </h2>
+
+          {/* Pending: needs the connector's confirm/decline (when assigned). */}
+          {pendingMeetings.map((b) =>
+            access.canWrite ? (
+              <BookingDecision
+                key={b.booking_id}
+                bookingId={b.booking_id}
+                startsAt={b.starts_at}
+                confirmAction={confirmAction}
+                declineAction={declineAction}
+              />
+            ) : (
+              <div
+                key={b.booking_id}
+                className="rounded-lg border border-warning/40 bg-warning-bg/40 p-4 text-sm"
+              >
+                <p className="font-medium text-foreground">Awaiting confirmation</p>
+                <p className="text-foreground-muted">
+                  {new Date(b.starts_at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+                </p>
+              </div>
+            ),
+          )}
+
+          {/* Confirmed / scheduled: just show it. */}
+          {upcomingMeetings.map((b) => (
+            <div
               key={b.booking_id}
-              bookingId={b.booking_id}
-              startsAt={b.starts_at}
-              confirmAction={confirmAction}
-              declineAction={declineAction}
-            />
+              className="rounded-lg border border-success/40 bg-success-bg/50 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-success/15 text-success">
+                  <CalendarDays className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">Scheduled meeting</p>
+                  <p className="mt-0.5 text-sm text-foreground-muted">
+                    {new Date(b.starts_at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+                  </p>
+                </div>
+              </div>
+            </div>
           ))}
         </section>
       )}
