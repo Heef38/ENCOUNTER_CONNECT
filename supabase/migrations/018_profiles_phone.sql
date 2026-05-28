@@ -9,4 +9,4 @@ ALTER TABLE profiles ADD COLUMN phone TEXT;
 COMMENT ON COLUMN profiles.phone IS
   'Staff mobile number for operational notifications (meeting scheduled, etc.).';
 
-NOTIFY pgrst, 'reload schema';
+NOTIFY pgrst, 'reload schema'; 
