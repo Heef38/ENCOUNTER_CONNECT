@@ -33,11 +33,11 @@ export default async function PublicChurchLandingPage({
 
   return (
     <main
-      className="min-h-screen bg-background"
+      className="bg-background py-12 md:py-20"
       style={accent ? ({ ['--church-accent' as string]: accent } as React.CSSProperties) : undefined}
     >
-      <div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-12">
-        <header className="flex items-center gap-3">
+      <div className="mx-auto flex w-full max-w-md flex-col gap-8 px-4">
+        <header className="flex flex-col items-center gap-3 text-center">
           {church.logo_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -61,21 +61,19 @@ export default async function PublicChurchLandingPage({
           </div>
         </header>
 
-        <section className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardContent className="space-y-4 p-6">
-              <div>
-                <h2 className="font-display text-lg font-semibold text-foreground">
-                  Get connected
-                </h2>
-                <p className="mt-1 text-sm text-foreground-muted">
-                  Create an account and we&apos;ll guide you through next steps.
-                </p>
-              </div>
-              <SignupForm churchId={church.id} campusId={null} />
-            </CardContent>
-          </Card>
-        </section>
+        <Card>
+          <CardContent className="space-y-4 p-6">
+            <div>
+              <h2 className="font-display text-lg font-semibold text-foreground">
+                Get connected
+              </h2>
+              <p className="mt-1 text-sm text-foreground-muted">
+                Create an account and we&apos;ll guide you through next steps.
+              </p>
+            </div>
+            <SignupForm churchId={church.id} campusId={null} />
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
