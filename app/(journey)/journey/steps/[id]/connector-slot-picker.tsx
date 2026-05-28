@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 interface Slot {
   starts_at: string;
@@ -34,6 +34,12 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
   const [error, setError] = useState<string | null>(null);
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [openDay, setOpenDay] = useState<string | null>(null);
+
+  function closePopover() {
+    setShowAll(false);
+    setOpenDay(null);
+  }
 
   function book(iso: string) {
     setError(null);
@@ -45,7 +51,7 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
         setSelectedIso(null);
         return;
       }
-      setShowAll(false);
+      closePopover();
       // The step page revalidates on success; nothing else to do here.
     });
   }
@@ -109,7 +115,7 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
       <div className="relative border-t border-border pt-3">
         <button
           type="button"
-          onClick={() => setShowAll((v) => !v)}
+          onClick={() => (showAll ? closePopover() : setShowAll(true))}
           className="text-sm text-primary hover:underline"
           aria-expanded={showAll}
         >
@@ -118,13 +124,24 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
 
         {showAll && (
           <div className="absolute bottom-full left-0 z-20 mb-2 max-h-80 w-full max-w-sm overflow-y-auto rounded-lg border border-border bg-surface p-3 shadow-lg">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
-                All available times
-              </span>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              {openDay ? (
+                <button
+                  type="button"
+                  onClick={() => setOpenDay(null)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  All days
+                </button>
+              ) : (
+                <span className="text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
+                  Pick a day
+                </span>
+              )}
               <button
                 type="button"
-                onClick={() => setShowAll(false)}
+                onClick={closePopover}
                 aria-label="Close"
                 className="rounded p-0.5 text-foreground-subtle hover:bg-surface-muted hover:text-foreground"
               >
@@ -136,33 +153,47 @@ export function ConnectorSlotPicker({ proposedSlots, allSlots, bookAction }: Pro
               <p className="px-1 py-3 text-sm text-foreground-muted">
                 No times available right now.
               </p>
-            ) : (
-              <div className="space-y-3">
-                {Array.from(byDay.values()).map((slots) => (
-                  <div key={slots[0].starts_at.slice(0, 10)}>
-                    <p className="mb-1 text-xs font-medium text-foreground-subtle">
-                      {fmtDay(slots[0].starts_at)}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {slots.map((s) => (
-                        <button
-                          key={s.starts_at}
-                          type="button"
-                          disabled={pending}
-                          onClick={() => book(s.starts_at)}
-                          className={`rounded-md border px-2.5 py-1 text-sm transition disabled:opacity-50 ${
-                            selectedIso === s.starts_at
-                              ? 'border-primary bg-primary/10'
-                              : 'border-border bg-surface hover:border-primary/60 hover:bg-primary/5'
-                          }`}
-                        >
-                          {fmtTime(s.starts_at)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+            ) : openDay ? (
+              <div>
+                <p className="mb-2 text-sm font-medium text-foreground">
+                  {fmtDay(`${openDay}T00:00:00`)}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(byDay.get(openDay) ?? []).map((s) => (
+                    <button
+                      key={s.starts_at}
+                      type="button"
+                      disabled={pending}
+                      onClick={() => book(s.starts_at)}
+                      className={`rounded-md border px-2.5 py-1 text-sm transition disabled:opacity-50 ${
+                        selectedIso === s.starts_at
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border bg-surface hover:border-primary/60 hover:bg-primary/5'
+                      }`}
+                    >
+                      {fmtTime(s.starts_at)}
+                    </button>
+                  ))}
+                </div>
               </div>
+            ) : (
+              <ul className="space-y-1">
+                {Array.from(byDay.entries()).map(([day, slots]) => (
+                  <li key={day}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenDay(day)}
+                      className="flex w-full items-center justify-between rounded-md border border-border bg-surface px-3 py-2 text-left text-sm transition hover:border-primary/60 hover:bg-primary/5"
+                    >
+                      <span className="font-medium text-foreground">{fmtDay(slots[0].starts_at)}</span>
+                      <span className="flex items-center gap-1.5 text-foreground-subtle">
+                        {slots.length} {slots.length === 1 ? 'time' : 'times'}
+                        <ChevronRight className="h-4 w-4" />
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         )}
