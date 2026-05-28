@@ -55,7 +55,7 @@ export function AssessmentForm({
             key={q.id}
             className="space-y-2 rounded-lg border border-border bg-surface p-4"
           >
-            <Label className="flex items-baseline gap-2 text-sm font-medium">
+            <Label className="flex items-baseline gap-2 text-base font-medium">
               <span className="text-foreground-subtle">{i + 1}.</span>
               <span>
                 {q.prompt}
@@ -87,7 +87,7 @@ export function AssessmentForm({
                 {[1, 2, 3, 4, 5].map((n) => (
                   <label
                     key={n}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-base"
                   >
                     <input
                       type="radio"
@@ -111,7 +111,7 @@ export function AssessmentForm({
                   return (
                     <label
                       key={value}
-                      className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-base"
                     >
                       <input
                         type="radio"
@@ -139,7 +139,7 @@ export function AssessmentForm({
                   return (
                     <label
                       key={value}
-                      className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-base"
                     >
                       <input
                         type="checkbox"
@@ -164,7 +164,7 @@ export function AssessmentForm({
                 ].map((opt) => (
                   <label
                     key={opt.value}
-                    className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                    className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-base"
                   >
                     <input
                       type="radio"
@@ -187,7 +187,7 @@ export function AssessmentForm({
       })}
 
       {state && !state.ok && state.error && (
-        <div className="rounded-md border border-danger/40 bg-danger-bg px-3 py-2 text-sm text-danger">
+        <div className="rounded-md border border-danger/40 bg-danger-bg px-3 py-2 text-base text-danger">
           {state.error}
         </div>
       )}

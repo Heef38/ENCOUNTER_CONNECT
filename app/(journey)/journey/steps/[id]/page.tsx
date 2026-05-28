@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { Map as MapIcon, Video, ExternalLink, CalendarDays, ArrowRight } from 'lucide-react';
+import { Video, ExternalLink, CalendarDays, ArrowRight } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/dal';
 import {
   createServerSupabaseClient,
@@ -112,15 +112,12 @@ export default async function JourneyStepPage({
   const { flow_step: step } = progress;
   const isComplete = progress.status === 'completed';
 
-  // Navigation context: position in the journey + where "continue" goes.
+  // Navigation context: where "continue" goes after this step.
   const journey = await loadParticipantJourney(supabase, session.id);
   const ordered = journey ? orderedProgress(journey) : [];
-  const total = ordered.length;
-  const stepNumber = Math.max(1, ordered.findIndex((s) => s.id === id) + 1);
   const nextId = resolveNextProgressId(ordered, id);
   const nextHref = nextId ? `/journey/steps/${nextId}` : '/journey';
   const isLast = !nextId;
-  const fillPct = total > 0 ? Math.round((stepNumber / total) * 100) : 0;
 
   // ── Per-type extras ──────────────────────────────────────────
   type Booking = { id: string; starts_at: string; status: string };
@@ -234,49 +231,27 @@ export default async function JourneyStepPage({
 
   return (
     <div className="flex flex-1 flex-col">
-      {/* Progress header */}
-      <div className="px-4 pt-4">
-        <div className="mb-2 flex items-center justify-between text-xs">
-          <Link
-            href="/journey/map"
-            className="inline-flex items-center gap-1 text-foreground-subtle hover:text-foreground"
-          >
-            <MapIcon className="h-3.5 w-3.5" />
-            Full journey
-          </Link>
-          <span className="font-medium text-foreground-subtle">
-            {stepNumber} / {total}
-          </span>
-        </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-muted">
-          <div
-            className="h-full rounded-full bg-[var(--journey-accent,var(--color-primary,#0f766e))] transition-all"
-            style={{ width: `${fillPct}%` }}
-          />
-        </div>
-      </div>
-
       {/* Scrollable content */}
       <div className="flex-1 space-y-5 px-4 py-5">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">
             {step.title}
           </h1>
           {step.description && (
-            <p className="mt-2 text-sm text-foreground-muted">{step.description}</p>
+            <p className="mt-2 text-base text-foreground-muted">{step.description}</p>
           )}
         </div>
 
         {step.step_type === 'schedule' && (
           <div className="space-y-4">
             {step.appointment_type ? (
-              <p className="text-sm text-foreground-muted">
+              <p className="text-base text-foreground-muted">
                 You&apos;ll be booking a{' '}
                 <span className="font-medium text-foreground">{step.appointment_type.name}</span>
                 {step.appointment_type.duration_minutes ? ` (${step.appointment_type.duration_minutes} min)` : ''}.
               </p>
             ) : (
-              <p className="text-sm text-foreground-muted">
+              <p className="text-base text-foreground-muted">
                 Book your appointment to complete this step.
               </p>
             )}
@@ -322,27 +297,27 @@ export default async function JourneyStepPage({
         )}
 
         {step.step_type === 'video' && (
-          <div className="space-y-4">
+          <div>
             {videoLessons.length === 0 ? (
-              <p className="text-sm text-foreground-muted">
+              <p className="text-base text-foreground-muted">
                 No videos have been added to this step yet. Reach out to your campus team.
               </p>
             ) : (
-              <ul className="space-y-3">
+              <ul className="space-y-4 md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
                 {videoLessons.map((l) => {
                   const embed = toYouTubeEmbed(l.video_url);
                   return (
                     <li
                       key={l.id}
-                      className="overflow-hidden rounded-lg border border-border md:relative md:left-1/2 md:w-[min(92vw,56rem)] md:-translate-x-1/2"
+                      className="overflow-hidden rounded-lg border border-border md:max-h-[42vh] md:overflow-y-auto"
                     >
                       {embed ? (
-                        <div className="aspect-video w-full bg-black">
+                        <div className="relative aspect-video w-full bg-black">
                           <iframe
                             src={embed}
-                            className="h-full w-full"
+                            className="absolute inset-0 h-full w-full"
                             title={l.title}
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
                             allowFullScreen
                           />
                         </div>
@@ -354,19 +329,19 @@ export default async function JourneyStepPage({
                           className="flex items-center gap-3 bg-surface-muted/40 p-3 hover:bg-surface-muted"
                         >
                           <Video className="h-5 w-5 flex-none text-primary" />
-                          <span className="flex-1 text-sm font-medium text-foreground">{l.title}</span>
+                          <span className="flex-1 text-base font-medium text-foreground">{l.title}</span>
                           <ExternalLink className="h-4 w-4 text-foreground-subtle" />
                         </a>
                       ) : (
                         <div className="flex items-center gap-3 bg-surface-muted/40 p-3">
                           <Video className="h-5 w-5 flex-none text-foreground-subtle" />
-                          <span className="flex-1 text-sm text-foreground">{l.title}</span>
+                          <span className="flex-1 text-base text-foreground">{l.title}</span>
                         </div>
                       )}
-                      <div className="px-3 py-2">
-                        <p className="text-sm font-medium text-foreground">{l.title}</p>
+                      <div className="px-3 py-2.5">
+                        <p className="text-base font-medium text-foreground">{l.title}</p>
                         {l.body && (
-                          <p className="mt-1 whitespace-pre-wrap text-xs text-foreground-muted">{l.body}</p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-muted">{l.body}</p>
                         )}
                       </div>
                     </li>
@@ -378,13 +353,13 @@ export default async function JourneyStepPage({
         )}
 
         {step.step_type === 'event' && (
-          <p className="text-sm text-foreground-muted">
+          <p className="text-base text-foreground-muted">
             Attend the event, then mark it complete here.
           </p>
         )}
 
         {(step.step_type === 'manual' || step.step_type === 'conversation') && (
-          <p className="text-sm text-foreground-muted">
+          <p className="text-base text-foreground-muted">
             {step.step_type === 'conversation'
               ? "Your connector will reach out for a conversation. Once you've had it, mark this step complete."
               : 'Take care of this step at your own pace, then mark it complete.'}
