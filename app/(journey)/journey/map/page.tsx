@@ -12,6 +12,7 @@ import {
   Video,
   Zap,
   Lock,
+  FileText,
 } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -100,9 +101,18 @@ export default async function JourneyMapPage() {
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to current step
         </Link>
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
-          Your journey
-        </h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+            Your journey
+          </h1>
+          <Link
+            href="/journey/documents"
+            className="inline-flex flex-none items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground-muted transition hover:border-primary/60 hover:text-foreground"
+          >
+            <FileText className="h-4 w-4" />
+            Documents
+          </Link>
+        </div>
         <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-foreground-muted">
           {campus?.name && <span>{campus.name}</span>}
           <Badge tone="primary">{participant.status.replace('_', ' ')}</Badge>

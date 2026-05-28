@@ -222,7 +222,10 @@ export function MonthCalendar({
                 }
               }}
               className={cn(
-                'group relative flex h-24 cursor-pointer flex-col border-b border-r border-border outline-none transition-colors hover:bg-surface-muted/40 focus-visible:bg-surface-muted/40',
+                'group relative flex h-24 cursor-pointer flex-col border-b border-r border-border outline-none transition-colors',
+                isEmpty
+                  ? 'hover:bg-surface-muted/40 focus-visible:bg-surface-muted/40'
+                  : 'bg-primary text-primary-foreground hover:bg-primary-hover',
                 'last:[&:nth-child(7n)]:border-r-0',
               )}
             >
@@ -389,8 +392,8 @@ function FilledDay({
   return (
     <div className="flex flex-1 flex-col px-1.5 pt-1 pb-0.5">
       {/* Header row: number + first appointment line */}
-      <div className="flex items-center gap-1.5 border-b border-border/60 pb-0.5">
-        <DayNumber n={date} isToday={isToday} />
+      <div className="flex items-center gap-1.5 border-b border-primary-foreground/20 pb-0.5">
+        <DayNumber n={date} isToday={isToday} highlighted />
         <div className="min-w-0 flex-1">
           {visible[0] ? <EventLine event={visible[0]} /> : null}
         </div>
@@ -412,17 +415,17 @@ function FilledDay({
                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 onMore(rect);
               }}
-              className="flex items-center justify-center gap-1 border-b border-border/60 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary hover:bg-primary/5"
+              className="flex items-center justify-center gap-1 border-b border-primary-foreground/20 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary-foreground hover:bg-primary-foreground/10"
             >
               MORE <ChevronDown className="h-3 w-3" />
-              <span className="ml-1 text-foreground-subtle normal-case tracking-normal">
+              <span className="ml-1 text-primary-foreground/70 normal-case tracking-normal">
                 +{overflowCount}
               </span>
             </button>
           );
         }
         return (
-          <div key={i} className="border-b border-border/60 py-0.5">
+          <div key={i} className="border-b border-primary-foreground/20 py-0.5">
             {evt ? <EventLine event={evt} /> : <span className="invisible text-xs">.</span>}
           </div>
         );
@@ -431,7 +434,30 @@ function FilledDay({
   );
 }
 
-function DayNumber({ n, isToday }: { n: number; isToday: boolean }) {
+function DayNumber({
+  n,
+  isToday,
+  highlighted = false,
+}: {
+  n: number;
+  isToday: boolean;
+  highlighted?: boolean;
+}) {
+  if (highlighted) {
+    // On a primary-colored (appointment) cell, use the foreground color.
+    return (
+      <span
+        className={cn(
+          'font-sans text-sm font-bold leading-none tabular-nums',
+          isToday
+            ? 'flex h-5 w-5 items-center justify-center rounded-full bg-primary-foreground text-primary text-xs'
+            : 'text-primary-foreground',
+        )}
+      >
+        {n}
+      </span>
+    );
+  }
   return (
     <span
       className={cn(
@@ -447,16 +473,18 @@ function DayNumber({ n, isToday }: { n: number; isToday: boolean }) {
 }
 
 function EventLine({ event }: { event: CalendarEvent }) {
+  // EventLine only renders inside appointment (primary-colored) cells, so its
+  // text uses the primary foreground color for contrast.
   return (
     <div className="flex items-center gap-1.5 text-[11px] leading-tight">
       <span
-        className="h-2 w-2 shrink-0 rounded-full"
+        className="h-2 w-2 shrink-0 rounded-full ring-1 ring-primary-foreground/40"
         style={{ background: colorForEvent(event) }}
       />
-      <span className="shrink-0 text-foreground-subtle tabular-nums">
+      <span className="shrink-0 text-primary-foreground/70 tabular-nums">
         {formatTime(event.starts_at)}
       </span>
-      <span className="truncate text-foreground">{event.title}</span>
+      <span className="truncate text-primary-foreground">{event.title}</span>
     </div>
   );
 }
