@@ -37,6 +37,7 @@ export async function seedEncounterConnectFlow(): Promise<SeedResult> {
     .from('scheduling_appointment_types')
     .select('id')
     .eq('is_active', true)
+    .eq('church_id', churchId)
     .ilike('name', '%connect%')
     .limit(1)
     .maybeSingle();

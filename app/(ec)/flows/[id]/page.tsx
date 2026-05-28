@@ -16,17 +16,17 @@ export default async function FlowDetailPage({
   const { id } = await params;
   const supabase = await createServerSupabaseClient();
 
-  const [flowResult, { data: appointmentTypes }] = await Promise.all([
-    getFlow(supabase, id),
-    supabase
-      .from('scheduling_appointment_types')
-      .select('id, name, duration_minutes')
-      .eq('is_active', true)
-      .order('name'),
-  ]);
-
+  const flowResult = await getFlow(supabase, id);
   if (!flowResult.success) notFound();
   const flow = flowResult.data;
+
+  // Appointment types are church-scoped — only this flow's church's types.
+  const { data: appointmentTypes } = await supabase
+    .from('scheduling_appointment_types')
+    .select('id, name, duration_minutes')
+    .eq('is_active', true)
+    .eq('church_id', flow.church_id)
+    .order('name');
 
   const [{ data: lessons }, { data: campuses }] = await Promise.all([
     supabase

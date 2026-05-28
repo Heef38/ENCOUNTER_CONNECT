@@ -11,19 +11,27 @@ export default async function EditAppointmentTypePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireChurchAdmin();
+  const session = await requireChurchAdmin();
   const { id } = await params;
   const admin = await createServiceRoleClient();
 
   const { data } = await admin
     .from('scheduling_appointment_types')
     .select(
-      'id, name, description, duration_minutes, buffer_before_minutes, buffer_after_minutes, min_notice_hours, max_advance_days, requires_confirmation, is_public, is_active',
+      'id, name, description, duration_minutes, buffer_before_minutes, buffer_after_minutes, min_notice_hours, max_advance_days, requires_confirmation, is_public, is_active, church_id',
     )
     .eq('id', id)
     .maybeSingle();
 
   if (!data) notFound();
+  // Tenant check: don't expose another church's type.
+  if (
+    !session.profile?.is_platform_admin &&
+    data.church_id &&
+    data.church_id !== session.profile?.church_id
+  ) {
+    notFound();
+  }
 
   const update = updateApptType.bind(null, id);
 

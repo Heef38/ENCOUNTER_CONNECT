@@ -18,13 +18,17 @@ interface AppointmentTypeRow {
 }
 
 export default async function AppointmentTypesSettingsPage() {
-  await requireChurchAdmin();
+  const session = await requireChurchAdmin();
   const supabase = await createServerSupabaseClient();
+  const churchId = session.profile?.church_id ?? null;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('scheduling_appointment_types')
     .select('id, name, duration_minutes, is_active, is_public, color')
     .order('name');
+  // Platform admins (no church) see all; church admins see only their own.
+  if (churchId) query = query.eq('church_id', churchId);
+  const { data, error } = await query;
 
   const types = (data ?? []) as AppointmentTypeRow[];
 

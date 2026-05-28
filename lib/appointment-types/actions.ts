@@ -49,13 +49,21 @@ export async function createApptType(
   _prev: ActionResult | null,
   formData: FormData,
 ): Promise<ActionResult> {
-  await requireChurchAdmin();
+  const session = await requireChurchAdmin();
   const input = buildInput(formData);
   if ('error' in input) return { ok: false, error: input.error };
 
   const admin = await createServiceRoleClient();
   const result = await createAppointmentType(admin, input);
   if (!result.success) return { ok: false, error: result.error };
+
+  // Scope the new type to the admin's church (the core service doesn't set it).
+  if (session.profile?.church_id) {
+    await admin
+      .from('scheduling_appointment_types')
+      .update({ church_id: session.profile.church_id })
+      .eq('id', result.data.id);
+  }
 
   await recordAudit({
     action: 'appointment_type.create',
@@ -73,7 +81,7 @@ export async function updateApptType(
   _prev: ActionResult | null,
   formData: FormData,
 ): Promise<ActionResult> {
-  await requireChurchAdmin();
+  const session = await requireChurchAdmin();
   const base = buildInput(formData);
   if ('error' in base) return { ok: false, error: base.error };
 
@@ -83,6 +91,19 @@ export async function updateApptType(
   };
 
   const admin = await createServiceRoleClient();
+
+  // Tenant check: a church admin may only edit their own church's types.
+  if (!session.profile?.is_platform_admin) {
+    const { data: existing } = await admin
+      .from('scheduling_appointment_types')
+      .select('church_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (existing && existing.church_id && existing.church_id !== session.profile?.church_id) {
+      return { ok: false, error: 'Not authorized for this appointment type.' };
+    }
+  }
+
   const result = await updateAppointmentType(admin, id, input);
   if (!result.success) return { ok: false, error: result.error };
 
