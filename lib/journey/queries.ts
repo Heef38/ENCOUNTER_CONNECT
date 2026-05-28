@@ -66,19 +66,16 @@ export async function loadParticipantJourney(
 }
 
 /**
- * Progress rows in journey order: phase first, then the editor's drag order
- * within a phase. This is the order the guided flow walks through.
+ * Progress rows in journey order — by `order_index`, matching the flow
+ * editor's drag order and the journey map exactly. (Reorder keeps
+ * `phase_index` consistent with `order_index`, so this also respects phase
+ * grouping.)
  */
 export function orderedProgress(participant: JourneyParticipant): JourneyStep[] {
   return (participant.progress ?? [])
     .slice()
     .filter((s) => s.flow_step !== null)
-    .sort((a, b) => {
-      const pa = a.flow_step?.phase_index ?? 0;
-      const pb = b.flow_step?.phase_index ?? 0;
-      if (pa !== pb) return pa - pb;
-      return (a.flow_step?.order_index ?? 0) - (b.flow_step?.order_index ?? 0);
-    });
+    .sort((a, b) => (a.flow_step?.order_index ?? 0) - (b.flow_step?.order_index ?? 0));
 }
 
 /**

@@ -246,10 +246,42 @@ export async function reorderFlowSteps(
   supabase: SupabaseClient,
   input: ReorderFlowStepsInput,
 ): Promise<ServiceResult<void>> {
+  // phase_index drives journey sequencing/advancement, so it must stay in
+  // step with the new order. Two consecutive steps stay in the same phase
+  // (run concurrently) only if they shared a phase before AND remain
+  // adjacent now; otherwise each step starts a new phase. This preserves
+  // contiguous parallel groups and otherwise makes phase order follow the
+  // new linear order.
+  const { data: current, error: loadErr } = await supabase
+    .from('flow_steps')
+    .select('id, phase_index')
+    .eq('flow_id', input.flow_id)
+    .in('id', input.step_ids);
+  if (loadErr) return { success: false, error: loadErr.message };
+
+  const origPhase = new Map<string, number>();
+  for (const s of current ?? []) {
+    origPhase.set((s as { id: string }).id, (s as { phase_index: number }).phase_index);
+  }
+
+  const newPhase = new Map<string, number>();
+  let phase = 0;
+  input.step_ids.forEach((id, i) => {
+    if (i > 0) {
+      const prevId = input.step_ids[i - 1];
+      const sameGroup =
+        origPhase.has(id) &&
+        origPhase.has(prevId) &&
+        origPhase.get(id) === origPhase.get(prevId);
+      if (!sameGroup) phase += 1;
+    }
+    newPhase.set(id, phase);
+  });
+
   const updates = input.step_ids.map((stepId, index) =>
     supabase
       .from('flow_steps')
-      .update({ order_index: index })
+      .update({ order_index: index, phase_index: newPhase.get(stepId) ?? index })
       .eq('id', stepId)
       .eq('flow_id', input.flow_id),
   );

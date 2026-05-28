@@ -101,6 +101,20 @@ interface StepFormState {
   lesson_ids: string[];
 }
 
+/**
+ * Reindex order_index 0..n and recompute phase_index so it stays consistent
+ * with the new order: consecutive steps share a phase only if they shared one
+ * before AND remain adjacent. Mirrors the server's reorderFlowSteps so local
+ * state matches what gets saved.
+ */
+function reindexWithPhases(ordered: FlowStep[]): FlowStep[] {
+  let phase = 0;
+  return ordered.map((s, i) => {
+    if (i > 0 && ordered[i - 1].phase_index !== s.phase_index) phase += 1;
+    return { ...s, order_index: i, phase_index: phase };
+  });
+}
+
 const defaultForm = (firstStep: boolean): StepFormState => ({
   title: '',
   description: '',
@@ -255,9 +269,9 @@ export default function FlowStepList({
   async function handleMove(index: number, direction: 'up' | 'down') {
     const swap = direction === 'up' ? index - 1 : index + 1;
     if (swap < 0 || swap >= steps.length) return;
-    const next = [...steps];
+    const next = [...steps].sort((a, b) => a.order_index - b.order_index);
     [next[index], next[swap]] = [next[swap], next[index]];
-    const reindexed = next.map((s, i) => ({ ...s, order_index: i }));
+    const reindexed = reindexWithPhases(next);
     setSteps(reindexed);
     try {
       await apiPatch({
@@ -355,7 +369,7 @@ export default function FlowStepList({
       const base = [...steps].sort((a, b) => a.order_index - b.order_index);
       const srcIdx = base.findIndex((s) => s.id === step.id);
       base.splice(srcIdx + 1, 0, fresh);
-      const reindexed = base.map((s, i) => ({ ...s, order_index: i }));
+      const reindexed = reindexWithPhases(base);
       setSteps(reindexed);
       await apiPatch({ action: 'reorder_steps', step_ids: reindexed.map((s) => s.id) });
     } catch (err) {
@@ -368,7 +382,7 @@ export default function FlowStepList({
   /** Persist a freshly reordered flat list (used by drag-and-drop). */
   async function commitReorder(newSorted: FlowStep[]) {
     const prev = steps;
-    const reindexed = newSorted.map((s, i) => ({ ...s, order_index: i }));
+    const reindexed = reindexWithPhases(newSorted);
     setSteps(reindexed);
     try {
       await apiPatch({ action: 'reorder_steps', step_ids: reindexed.map((s) => s.id) });
