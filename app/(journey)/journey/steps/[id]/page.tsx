@@ -19,6 +19,7 @@ import {
   resolveNextProgressId,
 } from '@/lib/journey/queries';
 import { CompleteStepButton } from './complete-step-button';
+import { VideoEmbed } from './video-embed';
 import { AssessmentForm } from './assessment-form';
 import { AssessmentResults } from './assessment-results';
 import { ConnectorSlotPicker } from './connector-slot-picker';
@@ -59,22 +60,17 @@ interface ProgressRow {
 }
 
 /**
- * Best-effort YouTube embed. Recognizes youtube.com/watch?v=, youtu.be/<id>,
- * and youtube.com/embed/<id>. Returns null for unrecognized URLs.
+ * Extracts a YouTube video id from watch / youtu.be / embed URLs.
+ * Returns null for anything we don't recognize as YouTube.
  */
-function toYouTubeEmbed(url: string | null): string | null {
+function youTubeId(url: string | null): string | null {
   if (!url) return null;
   try {
     const u = new URL(url);
-    if (u.hostname === 'youtu.be') {
-      return `https://www.youtube.com/embed/${u.pathname.slice(1)}`;
-    }
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1) || null;
     if (u.hostname === 'www.youtube.com' || u.hostname === 'youtube.com') {
-      if (u.pathname === '/watch') {
-        const v = u.searchParams.get('v');
-        return v ? `https://www.youtube.com/embed/${v}` : null;
-      }
-      if (u.pathname.startsWith('/embed/')) return url;
+      if (u.pathname === '/watch') return u.searchParams.get('v');
+      if (u.pathname.startsWith('/embed/')) return u.pathname.split('/embed/')[1] || null;
     }
   } catch {
     return null;
@@ -303,24 +299,16 @@ export default async function JourneyStepPage({
                 No videos have been added to this step yet. Reach out to your campus team.
               </p>
             ) : (
-              <ul className="space-y-4 md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
+              <ul className="space-y-5">
                 {videoLessons.map((l) => {
-                  const embed = toYouTubeEmbed(l.video_url);
+                  const vid = youTubeId(l.video_url);
                   return (
                     <li
                       key={l.id}
-                      className="overflow-hidden rounded-lg border border-border md:max-h-[42vh] md:overflow-y-auto"
+                      className="overflow-hidden rounded-lg border border-border"
                     >
-                      {embed ? (
-                        <div className="relative aspect-video w-full bg-black">
-                          <iframe
-                            src={embed}
-                            className="absolute inset-0 h-full w-full"
-                            title={l.title}
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-                            allowFullScreen
-                          />
-                        </div>
+                      {vid ? (
+                        <VideoEmbed videoId={vid} title={l.title} />
                       ) : l.video_url ? (
                         <a
                           href={l.video_url}
