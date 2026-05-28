@@ -5,6 +5,7 @@ import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import type {
   ActivityItem,
+  CalendarEvent,
   ConnectorLoadRow,
   DashboardPills,
   InProgressRow,
@@ -155,6 +156,46 @@ export function Plate({ items }: { items: PlateItem[] }) {
 }
 
 // ── Needs attention (admin) ─────────────────────────────────────
+
+export function UpcomingAppointmentsList({ events }: { events: CalendarEvent[] }) {
+  return (
+    <section className="rounded-lg border border-border bg-surface shadow-sm">
+      <div className="border-b border-border px-5 py-3">
+        <h2 className="text-sm font-semibold text-foreground">Upcoming appointments</h2>
+      </div>
+      {events.length === 0 ? (
+        <p className="px-5 py-8 text-center text-sm text-foreground-muted">
+          No upcoming appointments.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {events.map((e) => (
+            <li key={e.id} className="flex items-center gap-3 px-5 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {e.title}
+                  {e.participantName ? ` · ${e.participantName}` : ''}
+                </p>
+                <p className="truncate text-xs text-foreground-muted">
+                  {formatWhen(e.starts_at)}
+                  {e.location ? ` · ${e.location}` : ''}
+                </p>
+              </div>
+              {e.participantId && (
+                <Link
+                  href={`/participants/${e.participantId}`}
+                  className="flex-none text-xs text-primary hover:underline"
+                >
+                  View
+                </Link>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 export function RecentActivityPanel({ items }: { items: ActivityItem[] }) {
   return (
