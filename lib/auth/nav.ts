@@ -25,10 +25,18 @@ export interface NavGroup {
 
 // The "Journey" dropdown groups the content that makes up a participant's journey.
 const JOURNEY_CHILDREN: NavItem[] = [
+  { href: '/flows',                     label: 'Flows' },
   { href: '/settings/connect-docs',     label: 'Connect Docs' },
   { href: '/settings/lessons',          label: 'Lessons' },
   { href: '/settings/appointment-types', label: 'Appointment Types' },
   { href: '/settings/assessments',      label: 'Assessments' },
+];
+
+// "Settings" is itself a dropdown of the remaining admin links (no hub page).
+const SETTINGS_CHILDREN: NavItem[] = [
+  { href: '/settings/serve-teams',  label: 'Serve Teams' },
+  { href: '/settings/notifications', label: 'Notifications' },
+  { href: '/audit',                 label: 'Audit log' },
 ];
 
 /**
@@ -64,8 +72,8 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
       { label: 'Journey',          children: JOURNEY_CHILDREN },
       { href: '/settings/campuses', label: 'Campuses' },
     ];
-    // Settings hub (the home for everything else) is church-admin only.
-    if (isChurchAdmin) items.push({ href: '/settings', label: 'Settings' });
+    // Settings is a dropdown of the remaining links — church-admin only.
+    if (isChurchAdmin) items.push({ label: 'Settings', children: SETTINGS_CHILDREN });
     groups.push({
       key: 'admin',
       label: 'Admin',
