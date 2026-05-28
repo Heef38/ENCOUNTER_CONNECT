@@ -26,6 +26,8 @@ export function SignupForm({ churchId, campusId, campusLabel }: Props) {
     const lastName = String(formData.get('last_name') ?? '');
     const email = String(formData.get('email') ?? '');
     const password = String(formData.get('password') ?? '');
+    const phone = String(formData.get('phone') ?? '');
+    const smsConsent = formData.get('sms_consent') === 'on';
 
     startTransition(async () => {
       const result = await signUpParticipant({
@@ -35,6 +37,8 @@ export function SignupForm({ churchId, campusId, campusLabel }: Props) {
         lastName,
         email,
         password,
+        phone,
+        smsConsent,
       });
 
       if (!result.ok) {
@@ -93,6 +97,46 @@ export function SignupForm({ churchId, campusId, campusLabel }: Props) {
         />
         <p className="text-xs text-foreground-subtle">At least 8 characters.</p>
       </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="phone">
+          Mobile number <span className="text-foreground-subtle">(optional)</span>
+        </Label>
+        <Input
+          id="phone"
+          name="phone"
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          placeholder="(555) 555-5555"
+        />
+      </div>
+
+      <label
+        htmlFor="sms_consent"
+        className="flex items-start gap-2.5 rounded-md border border-border bg-surface-muted/40 p-3 text-xs leading-relaxed text-foreground-muted"
+      >
+        <input
+          id="sms_consent"
+          name="sms_consent"
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 flex-none rounded border-border accent-primary"
+        />
+        <span>
+          I agree to receive recurring automated text messages (appointment reminders
+          and next-step updates) at the number above. Msg frequency varies. Msg &amp;
+          data rates may apply. Reply STOP to cancel, HELP for help. Consent is not a
+          condition of signing up. See our{' '}
+          <Link href="/privacy" className="text-primary hover:underline" target="_blank">
+            Privacy Policy
+          </Link>{' '}
+          and{' '}
+          <Link href="/terms" className="text-primary hover:underline" target="_blank">
+            Terms
+          </Link>
+          .
+        </span>
+      </label>
 
       {campusLabel && (
         <p className="text-xs text-foreground-subtle">

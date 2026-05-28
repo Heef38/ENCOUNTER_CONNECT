@@ -27,6 +27,10 @@ interface SignupArgs {
   lastName: string;
   email: string;
   password: string;
+  /** Optional mobile number for text-message updates. */
+  phone?: string;
+  /** True when the user checked the SMS consent box. Only honored if a phone is given. */
+  smsConsent?: boolean;
 }
 
 /**
@@ -43,6 +47,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
   const lastName = args.lastName.trim();
   const email = args.email.trim().toLowerCase();
   const password = args.password;
+  const phone = args.phone?.trim() || null;
 
   if (!firstName || !lastName) return { ok: false, error: 'Please enter your name.' };
   if (!email) return { ok: false, error: 'Email is required.' };
@@ -50,6 +55,12 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
     return { ok: false, error: 'Password must be at least 8 characters.' };
   }
   if (!args.churchId) return { ok: false, error: 'Missing church.' };
+  if (args.smsConsent && !phone) {
+    return { ok: false, error: 'Enter your mobile number to receive text messages.' };
+  }
+
+  // Record SMS consent only when a number was given AND the box was checked.
+  const smsConsentAt = phone && args.smsConsent ? new Date().toISOString() : null;
 
   const supabase = await createServerSupabaseClient();
   const admin = await createServiceRoleClient();
@@ -121,8 +132,11 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
       first_name: firstName,
       last_name: lastName,
       email,
+      phone,
       status: 'new',
       signed_up_at: new Date().toISOString(),
+      sms_consent_at: smsConsentAt,
+      sms_consent_source: smsConsentAt ? 'web_signup' : null,
     })
     .select('id')
     .single();
@@ -177,6 +191,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
       church_id: args.churchId,
       campus_id: args.campusId,
       email,
+      sms_consent: Boolean(smsConsentAt),
     },
   });
 
