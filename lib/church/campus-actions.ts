@@ -44,6 +44,7 @@ export async function createCampus(formData: FormData): Promise<ActionResult> {
   const intro_text = nullable(formData.get('intro_text'));
   const body = nullable(formData.get('body'));
   const brand_color = nullable(formData.get('brand_color'));
+  const accent_color = nullable(formData.get('accent_color'));
 
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
@@ -59,6 +60,7 @@ export async function createCampus(formData: FormData): Promise<ActionResult> {
       intro_text,
       body,
       brand_color,
+      accent_color,
     })
     .select('id')
     .single();
@@ -94,6 +96,7 @@ export async function updateCampus(
   const intro_text = nullable(formData.get('intro_text'));
   const body = nullable(formData.get('body'));
   const brand_color = nullable(formData.get('brand_color'));
+  const accent_color = nullable(formData.get('accent_color'));
 
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase
@@ -108,6 +111,7 @@ export async function updateCampus(
       intro_text,
       body,
       brand_color,
+      accent_color,
     })
     .eq('id', id);
 

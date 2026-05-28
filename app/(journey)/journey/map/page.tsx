@@ -263,7 +263,7 @@ function JourneyStepBlock({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {state === 'current' && (
-              <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+              <span className="inline-flex items-center gap-1 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
                 <Zap className="h-2.5 w-2.5" />
                 Up next
               </span>

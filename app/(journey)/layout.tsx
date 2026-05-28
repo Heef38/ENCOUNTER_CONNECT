@@ -9,7 +9,7 @@ import { ThemeToggle } from '@/components/layout/theme-toggle';
 
 interface LayoutData {
   church: { name: string; logo_url: string | null; brand_color: string | null } | null;
-  campus: { name: string; brand_color: string | null } | null;
+  campus: { name: string; brand_color: string | null; accent_color: string | null } | null;
   progress: { status: string }[] | null;
 }
 
@@ -29,7 +29,7 @@ export default async function JourneyLayout({ children }: { children: ReactNode 
     .from('participants')
     .select(
       `church:churches(name, logo_url, brand_color),
-       campus:campuses(name, brand_color),
+       campus:campuses(name, brand_color, accent_color),
        progress:participant_progress(status)`,
     )
     .eq('profile_id', session.id)
@@ -38,7 +38,21 @@ export default async function JourneyLayout({ children }: { children: ReactNode 
   const layoutData = (data as unknown as LayoutData | null) ?? null;
   const church = layoutData?.church ?? null;
   const campus = layoutData?.campus ?? null;
-  const accent = campus?.brand_color ?? church?.brand_color ?? null;
+
+  // Campus colors theme the journey: primary (buttons/progress/highlights) and
+  // accent (secondary). They override the global tokens for this subtree, so
+  // any bg-primary / bg-accent inside the journey picks them up automatically.
+  const primary = campus?.brand_color ?? church?.brand_color ?? null;
+  const accent = campus?.accent_color ?? null;
+  const themeVars: Record<string, string> = {};
+  if (primary) {
+    themeVars['--primary'] = primary;
+    themeVars['--primary-hover'] = primary;
+  }
+  if (accent) {
+    themeVars['--accent'] = accent;
+    themeVars['--accent-hover'] = accent;
+  }
 
   const progress = layoutData?.progress ?? [];
   const total = progress.length;
@@ -48,7 +62,7 @@ export default async function JourneyLayout({ children }: { children: ReactNode 
   return (
     <div
       className="min-h-[100dvh] overflow-x-hidden bg-background md:overflow-x-visible"
-      style={accent ? ({ ['--journey-accent' as string]: accent } as React.CSSProperties) : undefined}
+      style={Object.keys(themeVars).length ? (themeVars as React.CSSProperties) : undefined}
     >
       <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col md:max-w-3xl">
         <header className="border-b border-border px-4 py-3">
@@ -79,7 +93,7 @@ export default async function JourneyLayout({ children }: { children: ReactNode 
           {total > 0 && (
             <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-muted">
               <div
-                className="h-full rounded-full bg-[var(--journey-accent,var(--color-primary,#0f766e))] transition-all"
+                className="h-full rounded-full bg-primary transition-all"
                 style={{ width: `${pct}%` }}
               />
             </div>

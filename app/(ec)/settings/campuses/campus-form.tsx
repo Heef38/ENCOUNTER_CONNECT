@@ -30,6 +30,7 @@ export function CampusForm({
 }: Props) {
   const router = useRouter();
   const [brandColor, setBrandColor] = useState(campus?.brand_color ?? '');
+  const [accentColor, setAccentColor] = useState(campus?.accent_color ?? '');
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     async (prev, formData) => {
       const result = await action(prev, formData);
@@ -131,11 +132,11 @@ export function CampusForm({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="brand_color">Journey color</Label>
+            <Label htmlFor="brand_color">Primary color</Label>
             <div className="flex items-center gap-2">
               <input
                 type="color"
-                aria-label="Pick journey color"
+                aria-label="Pick primary color"
                 value={brandColor || '#0f766e'}
                 onChange={(e) => setBrandColor(e.target.value)}
                 className="h-9 w-12 flex-none cursor-pointer rounded border border-border bg-surface p-0.5"
@@ -159,8 +160,40 @@ export function CampusForm({
               )}
             </div>
             <p className="text-xs text-foreground-subtle">
-              Themes how the participant&apos;s journey looks — the progress bar and
-              accents. Leave blank to use the church default.
+              Buttons, progress bar, and active highlights on the journey.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="accent_color">Accent color</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                aria-label="Pick accent color"
+                value={accentColor || '#f59e0b'}
+                onChange={(e) => setAccentColor(e.target.value)}
+                className="h-9 w-12 flex-none cursor-pointer rounded border border-border bg-surface p-0.5"
+              />
+              <Input
+                id="accent_color"
+                name="accent_color"
+                value={accentColor}
+                onChange={(e) => setAccentColor(e.target.value)}
+                placeholder="#f59e0b"
+                className="font-mono text-xs"
+              />
+              {accentColor && (
+                <button
+                  type="button"
+                  onClick={() => setAccentColor('')}
+                  className="flex-none text-xs text-foreground-subtle hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-foreground-subtle">
+              Secondary highlights (e.g. the &ldquo;Up next&rdquo; tag). Leave blank to use defaults.
             </p>
           </div>
         </div>
