@@ -75,9 +75,11 @@ export async function getAppointments(
   // row. We scope to the caller's church explicitly to stay tenant-safe
   // (churchId null = platform admin, all churches).
   const supabase = await createServiceRoleClient();
-  const now = new Date().toISOString();
+  const nowMs = Date.now();
 
-  let q = supabase
+  // Filtering/sorting on an embedded resource column is unreliable in
+  // PostgREST, so we pull the linked rows and split upcoming/past in JS.
+  const { data } = await supabase
     .from('participant_progress')
     .select(
       `scheduled_event_id,
@@ -99,21 +101,18 @@ export async function getAppointments(
          )
        )`,
     )
-    .not('scheduled_event_id', 'is', null);
-
-  if (scope === 'upcoming') {
-    q = q.gte('booking.starts_at', now).order('booking.starts_at' as never, { ascending: true });
-  } else {
-    q = q.lt('booking.starts_at', now).order('booking.starts_at' as never, { ascending: false });
-  }
-
-  const { data } = await q.limit(100);
+    .not('scheduled_event_id', 'is', null)
+    .limit(200);
 
   const rows = (data ?? []) as unknown as RawProgressRow[];
 
   return rows
     .filter((r) => r.booking && r.participant)
     .filter((r) => churchId === null || r.participant!.church_id === churchId)
+    .filter((r) => {
+      const t = new Date(r.booking!.starts_at).getTime();
+      return scope === 'upcoming' ? t >= nowMs : t < nowMs;
+    })
     .map<AppointmentRow>((r) => {
       const booking = r.booking!;
       const participant = r.participant!;
