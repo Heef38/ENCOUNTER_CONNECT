@@ -117,6 +117,12 @@ export default async function JourneyStepPage({
   const nextId = idx >= 0 && idx < total - 1 ? ordered[idx + 1].id : null;
   const stepNumber = idx >= 0 ? idx + 1 : 1;
 
+  // A required step that isn't finished blocks moving forward (but you can
+  // always go back to review). Optional steps can be passed without completing.
+  const currentRequired = idx >= 0 ? ordered[idx].flow_step?.is_required ?? true : true;
+  const forwardLocked = !isComplete && currentRequired;
+  const canGoForward = nextId !== null && !forwardLocked;
+
   // ── Per-type extras ──────────────────────────────────────────
   type Booking = { id: string; starts_at: string; status: string };
   type VideoLesson = { id: string; title: string; body: string | null; video_url: string | null };
@@ -409,14 +415,10 @@ export default async function JourneyStepPage({
               <CompleteStepButton action={completeAction} label="I've completed this" />
             ) : step.step_type === 'manual' || step.step_type === 'conversation' ? (
               <CompleteStepButton action={completeAction} label="Mark complete" />
-            ) : (
-              <span className="text-xs text-foreground-subtle">
-                {stepNumber} of {total}
-              </span>
-            )}
+            ) : null}
           </div>
 
-          {nextId ? (
+          {canGoForward ? (
             <Link
               href={`/journey/steps/${nextId}`}
               aria-label="Next step"
@@ -427,12 +429,17 @@ export default async function JourneyStepPage({
           ) : (
             <span
               aria-hidden
+              title={forwardLocked ? 'Complete this step to continue' : undefined}
               className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border border-border text-foreground-subtle opacity-30"
             >
               <ChevronRight className="h-5 w-5" />
             </span>
           )}
         </div>
+
+        <p className="mt-2 text-center text-xs text-foreground-subtle">
+          Step {stepNumber} of {total}
+        </p>
       </div>
     </div>
   );
