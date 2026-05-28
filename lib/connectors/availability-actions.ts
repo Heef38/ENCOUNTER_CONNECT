@@ -1,12 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { addMonths, formatISO, startOfToday } from 'date-fns';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { requireConnector } from '@/lib/auth/dal';
 import { recordAudit } from '@/lib/audit/log';
 
-export interface DayWindow {
-  day_of_week: number; // 0=Sun … 6=Sat
+/** A single available date with its time window. date = "YYYY-MM-DD". */
+export interface DateWindow {
+  date: string;
   start_time: string; // "HH:MM"
   end_time: string; // "HH:MM"
 }
@@ -16,10 +18,19 @@ export interface AvailabilityResult {
   error?: string;
   resourceId?: string;
   timezone?: string;
-  windows?: DayWindow[];
+  windows?: DateWindow[];
 }
 
 const DEFAULT_TZ = 'America/Chicago';
+/** Connectors may schedule availability this far ahead. */
+const MONTHS_AHEAD = 3;
+
+function todayStr(): string {
+  return formatISO(startOfToday(), { representation: 'date' });
+}
+function horizonStr(): string {
+  return formatISO(addMonths(startOfToday(), MONTHS_AHEAD), { representation: 'date' });
+}
 
 /**
  * Ensures the given connector has a scheduling resource, creating a `person`
@@ -78,7 +89,7 @@ async function ensureResource(
   return { resourceId: created.id as string, timezone: created.timezone as string };
 }
 
-/** Loads the current connector's weekly availability (provisioning a resource if needed). */
+/** Loads the current connector's per-date availability (provisioning a resource if needed). */
 export async function getMyAvailability(): Promise<AvailabilityResult> {
   const { connectorId } = await requireConnector();
   const resource = await ensureResource(connectorId);
@@ -87,58 +98,61 @@ export async function getMyAvailability(): Promise<AvailabilityResult> {
   const admin = await createServiceRoleClient();
   const { data: rules } = await admin
     .from('scheduling_availability_rules')
-    .select('day_of_week, start_time, end_time, rule_type, is_active')
+    .select('effective_from, start_time, end_time')
     .eq('resource_id', resource.resourceId)
-    .eq('rule_type', 'recurring')
+    .eq('rule_type', 'date_specific')
     .eq('is_active', true)
-    .order('day_of_week');
+    .gte('effective_from', todayStr())
+    .order('effective_from');
 
-  // One window per day for this editor; first rule per day wins.
-  const seen = new Set<number>();
-  const windows: DayWindow[] = [];
-  for (const r of rules ?? []) {
-    const dow = (r as { day_of_week: number | null }).day_of_week;
-    if (dow == null || seen.has(dow)) continue;
-    seen.add(dow);
-    windows.push({
-      day_of_week: dow,
+  const windows: DateWindow[] = (rules ?? [])
+    .filter((r) => (r as { effective_from: string | null }).effective_from)
+    .map((r) => ({
+      date: String((r as { effective_from: string }).effective_from).slice(0, 10),
       start_time: String((r as { start_time: string }).start_time).slice(0, 5),
       end_time: String((r as { end_time: string }).end_time).slice(0, 5),
-    });
-  }
+    }));
 
   return { ok: true, resourceId: resource.resourceId, timezone: resource.timezone, windows };
 }
 
-/** Replaces the current connector's recurring weekly availability. */
-export async function saveMyAvailability(windows: DayWindow[]): Promise<AvailabilityResult> {
+/** Replaces the current connector's future per-date availability. */
+export async function saveMyAvailability(windows: DateWindow[]): Promise<AvailabilityResult> {
   const { connectorId } = await requireConnector();
   const resource = await ensureResource(connectorId);
   if (!resource) return { ok: false, error: 'Could not set up your scheduling resource.' };
 
+  const min = todayStr();
+  const max = horizonStr();
   for (const w of windows) {
     if (w.start_time >= w.end_time) {
       return { ok: false, error: 'Each day’s start time must be before its end time.' };
+    }
+    if (w.date < min || w.date > max) {
+      return { ok: false, error: `Dates must be within the next ${MONTHS_AHEAD} months.` };
     }
   }
 
   const admin = await createServiceRoleClient();
 
-  // Replace all recurring rules for this resource.
+  // Replace all future date-specific rules for this resource.
   const { error: delErr } = await admin
     .from('scheduling_availability_rules')
     .delete()
     .eq('resource_id', resource.resourceId)
-    .eq('rule_type', 'recurring');
+    .eq('rule_type', 'date_specific')
+    .gte('effective_from', min);
   if (delErr) return { ok: false, error: delErr.message };
 
   if (windows.length > 0) {
     const rows = windows.map((w) => ({
       resource_id: resource.resourceId,
-      rule_type: 'recurring' as const,
-      day_of_week: w.day_of_week,
+      rule_type: 'date_specific' as const,
+      day_of_week: null,
       start_time: `${w.start_time}:00`,
       end_time: `${w.end_time}:00`,
+      effective_from: w.date,
+      effective_until: w.date,
       timezone: resource.timezone,
       is_active: true,
     }));
@@ -150,7 +164,7 @@ export async function saveMyAvailability(windows: DayWindow[]): Promise<Availabi
     action: 'connector.availability_updated',
     entity_type: 'scheduling_resource',
     entity_id: resource.resourceId,
-    metadata: { connector_id: connectorId, window_count: windows.length },
+    metadata: { connector_id: connectorId, date_count: windows.length },
   });
 
   revalidatePath('/connector/availability');
