@@ -50,10 +50,11 @@
 }
 
 [data-theme="light"] {
-  /* Canvas — warm off-white */
+  /* Canvas — white page; items sit on a slightly darker warm white so
+     cards/panels stand out against the background. */
   --background:    #faf9f5;
-  --surface:       #ffffff;
-  --surface-muted: #f4f2ec;
+  --surface:       #f1efe8;
+  --surface-muted: #e7e4db;
 
   /* Text */
   --foreground:        #1c1917;
