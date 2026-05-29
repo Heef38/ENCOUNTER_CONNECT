@@ -1,11 +1,8 @@
 import type { ReactNode } from 'react';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Map as MapIcon } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { SignOutButton } from '@/components/auth/sign-out-button';
-import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { JourneyMenu } from '@/components/journey/journey-menu';
 
 interface LayoutData {
   church: { name: string; logo_url: string | null; brand_color: string | null } | null;
@@ -77,17 +74,7 @@ export default async function JourneyLayout({ children }: { children: ReactNode 
                 </span>
               )}
             </div>
-            <div className="flex flex-none items-center gap-2">
-              <Link
-                href="/journey/map"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground-muted hover:text-foreground"
-              >
-                <MapIcon className="h-4 w-4" />
-                <span>Full journey</span>
-              </Link>
-              <ThemeToggle />
-              <SignOutButton />
-            </div>
+            <JourneyMenu />
           </div>
 
           {total > 0 && (
