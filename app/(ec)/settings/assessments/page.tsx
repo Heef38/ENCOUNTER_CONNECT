@@ -59,11 +59,11 @@ export default async function AssessmentsSettingsPage() {
     <div className="space-y-6">
       <div>
         <Link
-          href="/settings"
+          href="/dashboard"
           className="mb-1 inline-flex items-center gap-1 text-xs text-foreground-subtle hover:text-foreground"
         >
           <ChevronLeft className="h-3 w-3" />
-          Settings
+          Dashboard
         </Link>
         <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
           Assessments
