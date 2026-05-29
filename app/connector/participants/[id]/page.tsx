@@ -31,6 +31,7 @@ interface ProgressRow {
   status: 'pending' | 'in_progress' | 'completed' | 'skipped';
   completed_at: string | null;
   scheduled_event_id: string | null;
+  meeting_completed_at: string | null;
   flow_step: {
     id: string;
     title: string;
@@ -73,7 +74,7 @@ export default async function ConnectorParticipantPage({
       `id, first_name, last_name, email, phone, sms_consent_at, status, signed_up_at, last_action_at,
        campus:campuses(id, name),
        progress:participant_progress(
-         id, status, completed_at, scheduled_event_id,
+         id, status, completed_at, scheduled_event_id, meeting_completed_at,
          flow_step:flow_steps(id, title, step_type, order_index, phase_index, is_required)
        )`,
     )
@@ -167,15 +168,22 @@ export default async function ConnectorParticipantPage({
       (b) => ({ booking_id: b.id, starts_at: b.starts_at, status: b.status }),
     );
   }
-  const pendingMeetings = meetings.filter((m) => m.status === 'pending_confirmation');
-  const upcomingMeetings = meetings.filter((m) => m.status !== 'pending_confirmation');
-
-  // Map each booking back to its progress row so we can open the meeting room.
+  // Map each booking back to its progress row so we can open the meeting room,
+  // and track which meetings the connector has marked finished.
   const progressByBooking = new Map<string, string>();
+  const meetingDoneBookings = new Set<string>();
   for (const p of progress) {
-    const b = (p as ProgressRow & { scheduled_event_id?: string | null }).scheduled_event_id;
-    if (b) progressByBooking.set(b, p.id);
+    const b = p.scheduled_event_id;
+    if (b) {
+      progressByBooking.set(b, p.id);
+      if (p.meeting_completed_at) meetingDoneBookings.add(b);
+    }
   }
+
+  const isDone = (m: Meeting) => m.status === 'completed' || meetingDoneBookings.has(m.booking_id);
+  const pendingMeetings = meetings.filter((m) => m.status === 'pending_confirmation' && !isDone(m));
+  const completedMeetings = meetings.filter((m) => isDone(m));
+  const upcomingMeetings = meetings.filter((m) => m.status !== 'pending_confirmation' && !isDone(m));
 
   async function confirmAction(bookingId: string) {
     'use server';
@@ -291,6 +299,33 @@ export default async function ConnectorParticipantPage({
                 {access.canWrite && progressByBooking.get(b.booking_id) && (
                   <Link href={`/connector/participants/${id}/meeting/${progressByBooking.get(b.booking_id)}`}>
                     <Button size="sm">Start meeting</Button>
+                  </Link>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Completed meetings. */}
+          {completedMeetings.map((b) => (
+            <div
+              key={b.booking_id}
+              className="rounded-lg border border-border bg-surface-muted/40 p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-success/15 text-success">
+                    <Check className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">Meeting completed</p>
+                    <p className="mt-0.5 text-sm text-foreground-muted">
+                      {new Date(b.starts_at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+                    </p>
+                  </div>
+                </div>
+                {access.canWrite && progressByBooking.get(b.booking_id) && (
+                  <Link href={`/connector/participants/${id}/meeting/${progressByBooking.get(b.booking_id)}`}>
+                    <Button size="sm" variant="outline">View notes</Button>
                   </Link>
                 )}
               </div>
