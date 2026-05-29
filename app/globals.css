@@ -126,6 +126,14 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 
+/* Stop any stray element from making the page wider than the viewport (the
+   "have to zoom out slightly" bug on mobile). `clip` avoids creating a scroll
+   container, so sticky headers keep working. */
+html {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
 /* Accessible, consistent focus ring across every focusable element. */
 *:focus-visible {
   outline: 2px solid var(--primary);

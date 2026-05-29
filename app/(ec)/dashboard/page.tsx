@@ -10,7 +10,6 @@ import {
   InProgressTable,
   RecentActivityPanel,
   UpcomingAppointmentsList,
-  Pills,
   Plate,
 } from '@/components/dashboard/sections';
 import {
@@ -20,7 +19,6 @@ import {
   getMonthBookings,
   getMyPlate,
   getRecentActivity,
-  getPills,
 } from '@/lib/dashboard/queries';
 
 interface SearchParams {
@@ -74,8 +72,7 @@ export default async function DashboardPage({
   const rangeStart = view === 'list' ? new Date() : monthStart;
   const rangeEnd = view === 'list' ? addMonths(new Date(), 4) : monthEnd;
 
-  const [pills, events, plate, activity, connectorLoad, inProgress] = await Promise.all([
-    getPills(ctx),
+  const [events, plate, activity, connectorLoad, inProgress] = await Promise.all([
     getMonthBookings(ctx, rangeStart, rangeEnd, scope),
     ctx.isConnector ? getMyPlate(ctx) : Promise.resolve([]),
     getRecentActivity(ctx),
@@ -121,8 +118,6 @@ export default async function DashboardPage({
           </div>
         )}
       </div>
-
-      <Pills pills={pills} showAttention={ctx.isAdmin} />
 
       {ctx.isAdmin && <RecentActivityPanel items={activity} />}
 

@@ -29,13 +29,6 @@ interface Props {
   homeHref: string;
 }
 
-const TONE_CLASSES: Record<NavGroupRender['color'], { border: string; text: string; bg: string }> = {
-  info:    { border: 'border-info/60',    text: 'text-info',    bg: 'bg-surface' },
-  success: { border: 'border-success/60', text: 'text-success', bg: 'bg-surface' },
-  warning: { border: 'border-warning/60', text: 'text-warning', bg: 'bg-surface' },
-  primary: { border: 'border-primary/60', text: 'text-primary', bg: 'bg-surface' },
-};
-
 export function ECNav({ groups, userLabel, homeHref }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -79,7 +72,7 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
           ))}
         </nav>
 
-        <div className="flex flex-none items-center gap-1 justify-self-end">
+        <div className="hidden flex-none items-center gap-1 justify-self-end md:flex">
           {userLabel && (
             <span className="mx-2 hidden text-xs text-foreground-subtle md:inline">
               {userLabel}
@@ -107,11 +100,15 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
             <MobileGroup key={group.key} group={group} onNavigate={() => setOpen(false)} />
           ))}
         </nav>
-        {userLabel && (
-          <div className="mt-auto border-t border-border px-4 py-3 text-xs text-foreground-subtle">
-            {userLabel}
+        <div className="mt-auto border-t border-border px-4 py-3">
+          {userLabel && (
+            <p className="mb-2 text-xs text-foreground-subtle">{userLabel}</p>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <ThemeToggle />
+            <SignOutButton />
           </div>
-        )}
+        </div>
       </Sheet>
     </header>
   );
@@ -124,47 +121,39 @@ function MobileGroup({
   group: NavGroupRender;
   onNavigate: () => void;
 }) {
-  const tone = TONE_CLASSES[group.color];
   return (
-    <div className={cn('relative rounded-md border p-2 pt-3', tone.border)}>
-      <span
-        className={cn(
-          'absolute -top-2 left-2 rounded bg-surface px-1.5 text-[10px] font-semibold uppercase tracking-wide',
-          tone.text,
-        )}
-      >
+    <div className="flex flex-col">
+      <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-subtle">
         {group.label}
-      </span>
-      <div className="flex flex-col gap-0.5">
-        {group.items.map((item) =>
-          item.children ? (
-            <div key={item.label}>
-              <p className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-wide text-foreground-subtle">
-                {item.label}
-              </p>
-              {item.children.map((c) => (
-                <Link
-                  key={c.href ?? c.label}
-                  href={c.href ?? '#'}
-                  onClick={onNavigate}
-                  className="rounded-md px-3 py-2 pl-5 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
-                >
-                  {c.label}
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <Link
-              key={item.href ?? item.label}
-              href={item.href ?? '#'}
-              onClick={onNavigate}
-              className="rounded-md px-3 py-2 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
-            >
+      </p>
+      {group.items.map((item) =>
+        item.children ? (
+          <Fragment key={item.label}>
+            <p className="px-3 pt-2 pb-0.5 text-xs font-medium text-foreground-subtle">
               {item.label}
-            </Link>
-          ),
-        )}
-      </div>
+            </p>
+            {item.children.map((c) => (
+              <Link
+                key={c.href ?? c.label}
+                href={c.href ?? '#'}
+                onClick={onNavigate}
+                className="rounded-md px-3 py-2 pl-5 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
+              >
+                {c.label}
+              </Link>
+            ))}
+          </Fragment>
+        ) : (
+          <Link
+            key={item.href ?? item.label}
+            href={item.href ?? '#'}
+            onClick={onNavigate}
+            className="rounded-md px-3 py-2 text-sm text-foreground-muted hover:bg-surface-muted hover:text-foreground"
+          >
+            {item.label}
+          </Link>
+        ),
+      )}
     </div>
   );
 }
