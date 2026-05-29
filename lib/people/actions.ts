@@ -56,6 +56,116 @@ export async function setProfileRole(
   return { ok: true };
 }
 
+const STAFF_ROLES: ECUserRole[] = ['church_admin', 'campus_admin', 'connector'];
+
+/**
+ * Creates a brand-new staff member from scratch: an auth user (email
+ * pre-confirmed so they can sign in immediately with the temporary
+ * password), a profile with the chosen staff role, and — for connectors —
+ * a connectors row so they appear in the right section and can be
+ * scheduled. Church-admin+ only; the new account is scoped to the
+ * inviter's church. Everything runs via service-role since the target
+ * user has no session yet and participant-scoped RLS can't self-write.
+ */
+export async function inviteStaff(formData: FormData): Promise<ActionResult> {
+  const session = await requireChurchAdmin();
+  const churchId = session.profile?.church_id;
+  if (!churchId) return { ok: false, error: 'No church context.' };
+
+  const first_name = String(formData.get('first_name') ?? '').trim();
+  const last_name = String(formData.get('last_name') ?? '').trim();
+  const email = String(formData.get('email') ?? '').trim().toLowerCase();
+  const password = String(formData.get('password') ?? '');
+  const phone = nullable(formData.get('phone'));
+  const roleRaw = String(formData.get('role') ?? '');
+  const campus_id = nullable(formData.get('campus_id'));
+
+  if (!first_name || !last_name) return { ok: false, error: 'Enter a first and last name.' };
+  if (!email) return { ok: false, error: 'Email is required.' };
+  if (!password || password.length < 8) {
+    return { ok: false, error: 'Temporary password must be at least 8 characters.' };
+  }
+  if (!STAFF_ROLES.includes(roleRaw as ECUserRole)) {
+    return { ok: false, error: 'Pick a role.' };
+  }
+  const role = roleRaw as ECUserRole;
+  if (!phone) return { ok: false, error: 'A mobile number is required.' };
+  if (role === 'campus_admin' && !campus_id) {
+    return { ok: false, error: 'Campus admins must be assigned to a campus.' };
+  }
+
+  const admin = await createServiceRoleClient();
+
+  // Validate the campus belongs to this church when one was chosen.
+  if (campus_id) {
+    const { data: campus } = await admin
+      .from('campuses')
+      .select('id, church_id')
+      .eq('id', campus_id)
+      .maybeSingle();
+    if (!campus || campus.church_id !== churchId) {
+      return { ok: false, error: 'That campus is not part of your church.' };
+    }
+  }
+
+  // Create the auth user. email_confirm skips the verification email so
+  // they can sign in right away with the temporary password.
+  const { data: created, error: authErr } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { first_name, last_name },
+  });
+  if (authErr || !created.user) {
+    // Most common cause: the email is already registered.
+    return { ok: false, error: authErr?.message ?? 'Could not create the account.' };
+  }
+  const userId = created.user.id;
+
+  const { error: profErr } = await admin.from('profiles').upsert(
+    {
+      id: userId,
+      role,
+      church_id: churchId,
+      campus_id,
+      is_platform_admin: false,
+      first_name,
+      last_name,
+      email,
+      phone,
+    },
+    { onConflict: 'id' },
+  );
+  if (profErr) {
+    // Roll back the orphaned auth user (cascades the profile if it landed).
+    await admin.auth.admin.deleteUser(userId).catch(() => {});
+    return { ok: false, error: profErr.message };
+  }
+
+  if (role === 'connector') {
+    const { error: connErr } = await admin.from('connectors').insert({
+      church_id: churchId,
+      profile_id: userId,
+      campus_id,
+      is_active: true,
+    });
+    if (connErr) {
+      await admin.auth.admin.deleteUser(userId).catch(() => {});
+      return { ok: false, error: connErr.message };
+    }
+  }
+
+  await recordAudit({
+    action: 'profile.invited',
+    entity_type: 'profile',
+    entity_id: userId,
+    metadata: { role, church_id: churchId, campus_id, email },
+  });
+
+  revalidatePath('/people');
+  return { ok: true };
+}
+
 /**
  * Promotes an existing profile (must already be in the church) to the
  * given role and optionally assigns a campus.

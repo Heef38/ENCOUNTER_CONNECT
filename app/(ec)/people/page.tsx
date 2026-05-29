@@ -125,6 +125,14 @@ export default async function PeoplePage() {
             Everyone connected to your church — admins, connectors, and participants.
           </p>
         </div>
+        {canManage && (
+          <Link href="/people/invite">
+            <Button>
+              <UserPlus className="h-4 w-4" />
+              Invite staff
+            </Button>
+          </Link>
+        )}
       </div>
 
       <Section
