@@ -95,7 +95,7 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
             <X className="h-5 w-5" />
           </Button>
         </div>
-        <nav className="flex flex-col gap-4 p-3">
+        <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
           {groups.map((group) => (
             <MobileGroup key={group.key} group={group} onNavigate={() => setOpen(false)} />
           ))}
