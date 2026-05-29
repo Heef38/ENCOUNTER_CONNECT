@@ -67,7 +67,13 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
   if (isCampusAdmin) {
     const items: NavItem[] = [
       { href: '/dashboard',        label: 'Dashboard' },
-      { href: '/people',           label: 'People' },
+      {
+        label: 'People',
+        children: [
+          { href: '/people',     label: 'All' },
+          { href: '/connectors', label: 'Connectors' },
+        ],
+      },
       { href: '/appointments',     label: 'Appointments' },
       { label: 'Journey',          children: JOURNEY_CHILDREN },
       { href: '/settings/campuses', label: 'Campuses' },
