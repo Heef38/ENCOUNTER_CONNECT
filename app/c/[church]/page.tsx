@@ -43,22 +43,17 @@ export default async function PublicChurchLandingPage({
             <img
               src={church.logo_url}
               alt={`${church.name} logo`}
-              className="h-12 w-12 rounded-md object-cover"
+              className="h-auto max-h-24 w-auto max-w-full object-contain"
             />
           ) : (
-            <div
-              className="h-12 w-12 rounded-md"
-              style={{ background: accent ?? 'var(--color-primary, #0f766e)' }}
-            />
-          )}
-          <div>
+            // No logo on file — fall back to the church name.
             <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
               {church.name}
             </h1>
-            {church.description && (
-              <p className="text-sm text-foreground-muted">{church.description}</p>
-            )}
-          </div>
+          )}
+          {church.description && (
+            <p className="text-sm text-foreground-muted">{church.description}</p>
+          )}
         </header>
 
         <Card>

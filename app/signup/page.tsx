@@ -69,7 +69,7 @@ export default async function SignupChurchPickerPage() {
                       <img
                         src={c.logo_url}
                         alt={`${c.name} logo`}
-                        className="h-10 w-10 flex-none rounded-md object-cover"
+                        className="h-12 w-auto max-w-[55%] flex-none object-contain"
                       />
                     ) : (
                       <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
@@ -77,9 +77,12 @@ export default async function SignupChurchPickerPage() {
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-foreground">
-                        {c.name}
-                      </p>
+                      {/* Name shown only when there's no logo to identify the church. */}
+                      {!c.logo_url && (
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {c.name}
+                        </p>
+                      )}
                       {c.description && (
                         <p className="truncate text-xs text-foreground-muted">
                           {c.description}
