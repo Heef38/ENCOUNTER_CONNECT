@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus, ShieldCheck, ShieldHalf, Users, UserPlus } from 'lucide-react';
+import { CheckCircle2, Plus, ShieldCheck, ShieldHalf, Users, UserPlus } from 'lucide-react';
 import { requireStaff } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { Badge } from '@/components/ui/badge';
@@ -278,7 +278,14 @@ export default async function PeoplePage() {
             badges={
               <>
                 <Badge tone={ROLE_TONE.participant}>Participant</Badge>
-                <Badge tone="neutral">{p.status.replace('_', ' ')}</Badge>
+                {p.status === 'completed' ? (
+                  <Badge tone="success" className="gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Journey complete
+                  </Badge>
+                ) : (
+                  <Badge tone="neutral">{p.status.replace('_', ' ')}</Badge>
+                )}
                 {!p.profile_id && (
                   <Badge tone="warning" className="text-[10px]">No login</Badge>
                 )}

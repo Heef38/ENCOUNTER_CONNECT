@@ -13,7 +13,7 @@ const STATUS_TONES: Record<string, 'info' | 'warning' | 'success' | 'neutral' | 
   new:         'info',
   in_progress: 'warning',
   connected:   'success',
-  completed:   'neutral',
+  completed:   'success',
   inactive:    'danger',
 };
 

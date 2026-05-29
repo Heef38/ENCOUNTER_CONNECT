@@ -169,6 +169,21 @@ async function completeStepAndAdvance(
     .update({ current_step_id: nextStepId })
     .eq('id', participantId);
 
+  // Journey completion: when nothing is left pending/in_progress across the
+  // whole journey, mark the participant 'completed' so it surfaces everywhere
+  // their status is shown (People, participants list, connector views).
+  const { count: openSteps } = await admin
+    .from('participant_progress')
+    .select('id', { count: 'exact', head: true })
+    .eq('participant_id', participantId)
+    .in('status', ['pending', 'in_progress']);
+  if ((openSteps ?? 0) === 0) {
+    await admin
+      .from('participants')
+      .update({ status: 'completed' })
+      .eq('id', participantId);
+  }
+
   await recordAudit({
     action: auditAction,
     entity_type: 'participant_progress',

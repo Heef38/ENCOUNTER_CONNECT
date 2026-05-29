@@ -27,7 +27,7 @@ const STATUS_TONES: Record<
   new:         'info',
   in_progress: 'warning',
   connected:   'success',
-  completed:   'neutral',
+  completed:   'success',
   inactive:    'danger',
 };
 

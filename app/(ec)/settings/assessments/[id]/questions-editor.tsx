@@ -18,8 +18,8 @@ const TYPES: { value: QuestionType; label: string }[] = [
   { value: 'text',         label: 'Short text' },
   { value: 'long_text',    label: 'Long text' },
   { value: 'scale',        label: 'Scale (1–5)' },
-  { value: 'choice',       label: 'Single choice' },
-  { value: 'multi_choice', label: 'Multiple choice' },
+  { value: 'choice',       label: 'Multiple choice (one answer)' },
+  { value: 'multi_choice', label: 'Checkboxes (select all that apply)' },
   { value: 'boolean',      label: 'Yes / No' },
 ];
 
