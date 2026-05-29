@@ -6,6 +6,8 @@ import { requireStaff } from '@/lib/auth/dal';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { ParticipantAssignmentForm } from '@/components/participants/assignment-form';
+import { ConfirmDeleteButton } from '@/components/ui/confirm-delete-button';
+import { deleteParticipantAccount } from '@/lib/participants/actions';
 
 const STATUS_TONES: Record<string, 'info' | 'warning' | 'success' | 'neutral' | 'danger'> = {
   new:         'info',
@@ -66,6 +68,8 @@ export default async function ParticipantDetailPage({
   const role = session.profile?.role;
   const isPlatform = session.profile?.is_platform_admin ?? false;
   const canManage = isPlatform || role === 'church_admin' || role === 'campus_admin';
+  // Full account deletion is church-admin+ only.
+  const canDelete = isPlatform || role === 'church_admin';
 
   let churchCampuses: { id: string; name: string }[] = [];
   let allChurches: { id: string; name: string }[] | null = null;
@@ -131,9 +135,18 @@ export default async function ParticipantDetailPage({
             {participant.email ?? 'No email'}
           </p>
         </div>
-        <Badge tone={STATUS_TONES[participant.status] ?? 'neutral'}>
-          {participant.status.replace('_', ' ')}
-        </Badge>
+        <div className="flex flex-col items-end gap-2">
+          <Badge tone={STATUS_TONES[participant.status] ?? 'neutral'}>
+            {participant.status.replace('_', ' ')}
+          </Badge>
+          {canDelete && (
+            <ConfirmDeleteButton
+              action={deleteParticipantAccount.bind(null, participant.id)}
+              message={`Permanently delete ${participant.first_name} ${participant.last_name}'s account? This removes their login, journey, and assessment data and cannot be undone.`}
+              label="Delete account"
+            />
+          )}
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

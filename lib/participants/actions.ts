@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { requireCampusAdmin, requireChurchAdmin } from '@/lib/auth/dal';
 import { recordAudit } from '@/lib/audit/log';
@@ -55,7 +56,8 @@ export async function deleteParticipantAccount(participantId: string): Promise<A
 
   revalidatePath('/participants');
   revalidatePath('/people');
-  return { ok: true };
+  // The participant (and possibly the page we're on) is gone — go to People.
+  redirect('/people');
 }
 
 /**

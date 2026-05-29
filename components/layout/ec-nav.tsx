@@ -85,7 +85,7 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
 
       <Sheet open={open} onClose={() => setOpen(false)}>
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <span className="font-display text-base font-semibold">Menu</span>
+          <span className="font-display text-base font-semibold text-foreground">Menu</span>
           <Button
             variant="ghost"
             size="icon"
