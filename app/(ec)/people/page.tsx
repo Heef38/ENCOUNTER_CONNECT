@@ -4,6 +4,9 @@ import { requireStaff } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDeleteButton } from '@/components/ui/confirm-delete-button';
+import { deleteStaffAccount } from '@/lib/people/actions';
+import { deleteParticipantAccount } from '@/lib/participants/actions';
 import type { ECUserRole } from '@/lib/church/types';
 
 interface Profile {
@@ -47,6 +50,7 @@ const ROLE_TONE: Record<ECUserRole, 'primary' | 'info' | 'warning' | 'neutral'> 
 
 export default async function PeoplePage() {
   const session = await requireStaff();
+  const myId = session.id;
   const churchId = session.profile?.church_id;
   const role = session.profile?.role;
   const isPlatform = session.profile?.is_platform_admin ?? false;
@@ -144,6 +148,16 @@ export default async function PeoplePage() {
                 {p.is_platform_admin && <Badge tone="primary">Platform</Badge>}
               </>
             }
+            action={
+              canManage && p.id !== myId && (isPlatform || !p.is_platform_admin) ? (
+                <ConfirmDeleteButton
+                  icon
+                  label={`Delete ${p.first_name} ${p.last_name}`}
+                  message={`Permanently delete ${p.first_name} ${p.last_name}'s account? This removes their login and admin access and cannot be undone.`}
+                  action={deleteStaffAccount.bind(null, p.id)}
+                />
+              ) : undefined
+            }
           />
         ))}
       </Section>
@@ -164,6 +178,16 @@ export default async function PeoplePage() {
             email={p.email}
             campus={campusName(p.campus_id)}
             badges={<Badge tone={ROLE_TONE.campus_admin}>Campus admin</Badge>}
+            action={
+              canManage && p.id !== myId ? (
+                <ConfirmDeleteButton
+                  icon
+                  label={`Delete ${p.first_name} ${p.last_name}`}
+                  message={`Permanently delete ${p.first_name} ${p.last_name}'s account? This removes their login and admin access and cannot be undone.`}
+                  action={deleteStaffAccount.bind(null, p.id)}
+                />
+              ) : undefined
+            }
           />
         ))}
       </Section>
@@ -188,6 +212,16 @@ export default async function PeoplePage() {
                 <Badge tone={ROLE_TONE.connector}>Connector</Badge>
                 {!connector.is_active && <Badge tone="neutral">Inactive</Badge>}
               </>
+            }
+            action={
+              canManage && profile.id !== myId ? (
+                <ConfirmDeleteButton
+                  icon
+                  label={`Delete ${profile.first_name} ${profile.last_name}`}
+                  message={`Permanently delete ${profile.first_name} ${profile.last_name}'s account? This removes their login and connector record and cannot be undone.`}
+                  action={deleteStaffAccount.bind(null, profile.id)}
+                />
+              ) : undefined
             }
           />
         ))}
@@ -226,6 +260,16 @@ export default async function PeoplePage() {
                   <Badge tone="warning" className="text-[10px]">No login</Badge>
                 )}
               </>
+            }
+            action={
+              canManage ? (
+                <ConfirmDeleteButton
+                  icon
+                  label={`Delete ${p.first_name} ${p.last_name}`}
+                  message={`Permanently delete ${p.first_name} ${p.last_name}'s account? This removes their login, journey, and assessment data and cannot be undone.`}
+                  action={deleteParticipantAccount.bind(null, p.id)}
+                />
+              ) : undefined
             }
           />
         ))}
@@ -297,12 +341,14 @@ function PersonRow({
   email,
   campus,
   badges,
+  action,
 }: {
   href: string | null;
   name: string;
   email: string | null;
   campus: string;
   badges: React.ReactNode;
+  action?: React.ReactNode;
 }) {
   const inner = (
     <div className="flex items-center justify-between gap-3 px-4 py-2.5">
@@ -323,14 +369,18 @@ function PersonRow({
     </div>
   );
 
-  if (!href) {
-    return <li>{inner}</li>;
-  }
+  // The delete control lives outside the navigation Link so clicking it
+  // never triggers row navigation.
   return (
-    <li>
-      <Link href={href} className="block hover:bg-surface-muted/60">
-        {inner}
-      </Link>
+    <li className="flex items-stretch">
+      {href ? (
+        <Link href={href} className="block min-w-0 flex-1 hover:bg-surface-muted/60">
+          {inner}
+        </Link>
+      ) : (
+        <div className="min-w-0 flex-1">{inner}</div>
+      )}
+      {action && <div className="flex flex-none items-center pr-2">{action}</div>}
     </li>
   );
 }

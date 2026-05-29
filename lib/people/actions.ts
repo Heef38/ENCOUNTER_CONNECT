@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { requireChurchAdmin, requireCampusAdmin } from '@/lib/auth/dal';
 import { recordAudit } from '@/lib/audit/log';
 import type { ECUserRole } from '@/lib/church/types';
@@ -109,6 +109,59 @@ export async function promoteProfile(formData: FormData): Promise<ActionResult> 
     entity_type: 'profile',
     entity_id: profile_id,
     metadata: { role, campus_id },
+  });
+
+  revalidatePath('/people');
+  return { ok: true };
+}
+
+/**
+ * Permanently deletes a staff member's account: removes their auth user,
+ * which cascades the profile (profiles.id → auth.users ON DELETE CASCADE)
+ * and any connector record (connectors.profile_id ON DELETE CASCADE).
+ * Participants they touched have their profile_id / assigned_connector_id
+ * set to NULL by FK rules. Church-admin+ only, scoped to their church.
+ * Irreversible.
+ */
+export async function deleteStaffAccount(profileId: string): Promise<ActionResult> {
+  const session = await requireChurchAdmin();
+  const isPlatform = session.profile?.is_platform_admin ?? false;
+
+  // You can't delete the account you're signed in as.
+  if (profileId === session.id) {
+    return { ok: false, error: "You can't delete your own account." };
+  }
+
+  const admin = await createServiceRoleClient();
+  const { data: target } = await admin
+    .from('profiles')
+    .select('id, church_id, is_platform_admin')
+    .eq('id', profileId)
+    .maybeSingle();
+  if (!target) return { ok: false, error: 'Profile not found.' };
+
+  // Tenant safety: a church admin may only delete their own church's people.
+  if (!isPlatform && target.church_id !== session.profile?.church_id) {
+    return { ok: false, error: 'Not authorized for this person.' };
+  }
+  // Only a platform admin may remove another platform admin.
+  if (target.is_platform_admin && !isPlatform) {
+    return { ok: false, error: 'Only a platform admin can remove a platform admin.' };
+  }
+
+  // Deleting the auth user cascades the profile and connector record.
+  try {
+    const { error } = await admin.auth.admin.deleteUser(profileId);
+    if (error) return { ok: false, error: error.message };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Delete failed.' };
+  }
+
+  await recordAudit({
+    action: 'profile.deleted',
+    entity_type: 'profile',
+    entity_id: profileId,
+    metadata: { church_id: target.church_id },
   });
 
   revalidatePath('/people');
