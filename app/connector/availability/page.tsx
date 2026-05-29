@@ -18,6 +18,14 @@ export default async function ConnectorAvailabilityPage() {
         </p>
       </div>
 
+      {result.teamName && (
+        <div className="rounded-md border border-info/40 bg-info-bg px-4 py-3 text-sm text-foreground">
+          You&apos;re editing the shared schedule for{' '}
+          <span className="font-medium">{result.teamName}</span>. Changes apply to
+          both of you, and meetings are booked with the team together.
+        </div>
+      )}
+
       {result.ok ? (
         <ConnectorAvailabilityEditor
           initialWindows={result.windows ?? []}

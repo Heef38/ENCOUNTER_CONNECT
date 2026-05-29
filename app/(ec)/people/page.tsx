@@ -91,6 +91,18 @@ export default async function PeoplePage() {
 
   const profiles = (profilesResult.data ?? []) as Profile[];
   const connectors = (connectorsResult.data ?? []) as ConnectorRow[];
+
+  // Connector → team name, for the "Team" badge in the connectors section.
+  const { data: teamMemberRows } = await supabase
+    .from('connector_team_members')
+    .select('connector_id, team:connector_teams!inner(name)');
+  const teamByConnector = new Map<string, string>();
+  for (const r of (teamMemberRows ?? []) as unknown as Array<{
+    connector_id: string;
+    team: { name: string } | null;
+  }>) {
+    if (r.team) teamByConnector.set(r.connector_id, r.team.name);
+  }
   const participants = (participantsResult.data ?? []) as ParticipantRow[];
   const campuses = (campusesResult.data ?? []) as CampusRow[];
 
@@ -218,6 +230,9 @@ export default async function PeoplePage() {
             badges={
               <>
                 <Badge tone={ROLE_TONE.connector}>Connector</Badge>
+                {teamByConnector.has(connector.id) && (
+                  <Badge tone="info">Team: {teamByConnector.get(connector.id)}</Badge>
+                )}
                 {!connector.is_active && <Badge tone="neutral">Inactive</Badge>}
               </>
             }

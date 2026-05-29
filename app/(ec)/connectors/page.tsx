@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Plus, Users } from 'lucide-react';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { listConnectorsWithStats } from '@/lib/connectors/services';
 import { requireStaff } from '@/lib/auth/dal';
@@ -11,6 +11,18 @@ export default async function ConnectorsPage() {
   const supabase = await createServerSupabaseClient();
   const result = await listConnectorsWithStats(supabase);
   const connectors = result.success ? result.data : [];
+
+  // Which connectors are on a team (for the badge).
+  const { data: memberRows } = await supabase
+    .from('connector_team_members')
+    .select('connector_id, team:connector_teams!inner(name)');
+  const teamByConnector = new Map<string, string>();
+  for (const r of (memberRows ?? []) as unknown as Array<{
+    connector_id: string;
+    team: { name: string } | null;
+  }>) {
+    if (r.team) teamByConnector.set(r.connector_id, r.team.name);
+  }
 
   const role = session.profile?.role;
   const canManage =
@@ -29,14 +41,22 @@ export default async function ConnectorsPage() {
             People guiding participants through the connection journey
           </p>
         </div>
-        {canManage && (
-          <Link href="/connectors/new">
-            <Button size="md">
-              <Plus className="h-4 w-4" />
-              New connector
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/connectors/teams">
+            <Button variant="outline" size="md">
+              <Users className="h-4 w-4" />
+              Teams
             </Button>
           </Link>
-        )}
+          {canManage && (
+            <Link href="/connectors/new">
+              <Button size="md">
+                <Plus className="h-4 w-4" />
+                New connector
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {connectors.length === 0 ? (
@@ -61,9 +81,14 @@ export default async function ConnectorsPage() {
                     <p className="mt-1 text-xs text-foreground-subtle">{c.campus.name}</p>
                   )}
                 </div>
-                <Badge tone={c.is_active ? 'success' : 'neutral'}>
-                  {c.is_active ? 'Active' : 'Inactive'}
-                </Badge>
+                <div className="flex flex-none flex-col items-end gap-1">
+                  <Badge tone={c.is_active ? 'success' : 'neutral'}>
+                    {c.is_active ? 'Active' : 'Inactive'}
+                  </Badge>
+                  {teamByConnector.has(c.id) && (
+                    <Badge tone="info">Team: {teamByConnector.get(c.id)}</Badge>
+                  )}
+                </div>
               </div>
 
               <div className="mt-4 border-t border-border pt-3">

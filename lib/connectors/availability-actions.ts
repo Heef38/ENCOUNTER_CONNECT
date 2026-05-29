@@ -19,6 +19,8 @@ export interface AvailabilityResult {
   resourceId?: string;
   timezone?: string;
   windows?: DateWindow[];
+  /** Set when the connector is on a team — the shared calendar being edited. */
+  teamName?: string;
 }
 
 const DEFAULT_TZ = 'America/Chicago';
@@ -36,10 +38,14 @@ function horizonStr(): string {
  * Ensures the given connector has a scheduling resource, creating a `person`
  * resource (church timezone, capacity 1) and linking it if missing. Not
  * exported — callers reach it only via the self-scoped actions below.
+ *
+ * If the connector is on an ACTIVE team, the team's SHARED resource is
+ * returned instead of the individual one — so both members read and write
+ * the same calendar. `teamName` is set in that case.
  */
 async function ensureResource(
   connectorId: string,
-): Promise<{ resourceId: string; timezone: string } | null> {
+): Promise<{ resourceId: string; timezone: string; teamName?: string } | null> {
   const admin = await createServiceRoleClient();
   const { data: connector } = await admin
     .from('connectors')
@@ -58,6 +64,42 @@ async function ensureResource(
       .eq('id', connector.church_id)
       .maybeSingle();
     if (church?.timezone) timezone = church.timezone as string;
+  }
+
+  // Team members edit the team's shared calendar, not their own.
+  const { data: membership } = await admin
+    .from('connector_team_members')
+    .select('team:connector_teams!inner(id, name, scheduling_resource_id, is_active)')
+    .eq('connector_id', connectorId)
+    .maybeSingle();
+  const team = (membership as unknown as {
+    team: { id: string; name: string; scheduling_resource_id: string | null; is_active: boolean } | null;
+  } | null)?.team;
+
+  if (team && team.is_active) {
+    if (team.scheduling_resource_id) {
+      const { data: res } = await admin
+        .from('scheduling_resources')
+        .select('id, timezone')
+        .eq('id', team.scheduling_resource_id)
+        .maybeSingle();
+      if (res) {
+        return { resourceId: res.id as string, timezone: res.timezone as string, teamName: team.name };
+      }
+    }
+    // Team somehow lacks a resource — provision one and link it to the team.
+    const { data: created } = await admin
+      .from('scheduling_resources')
+      .insert({ name: team.name || 'Team', kind: 'person', timezone, default_capacity: 1 })
+      .select('id, timezone')
+      .single();
+    if (created) {
+      await admin
+        .from('connector_teams')
+        .update({ scheduling_resource_id: created.id })
+        .eq('id', team.id);
+      return { resourceId: created.id as string, timezone: created.timezone as string, teamName: team.name };
+    }
   }
 
   if (connector.scheduling_resource_id) {
@@ -113,7 +155,13 @@ export async function getMyAvailability(): Promise<AvailabilityResult> {
       end_time: String((r as { end_time: string }).end_time).slice(0, 5),
     }));
 
-  return { ok: true, resourceId: resource.resourceId, timezone: resource.timezone, windows };
+  return {
+    ok: true,
+    resourceId: resource.resourceId,
+    timezone: resource.timezone,
+    windows,
+    teamName: resource.teamName,
+  };
 }
 
 /** Replaces the current connector's future per-date availability. */
@@ -168,5 +216,11 @@ export async function saveMyAvailability(windows: DateWindow[]): Promise<Availab
   });
 
   revalidatePath('/connector/availability');
-  return { ok: true, resourceId: resource.resourceId, timezone: resource.timezone, windows };
+  return {
+    ok: true,
+    resourceId: resource.resourceId,
+    timezone: resource.timezone,
+    windows,
+    teamName: resource.teamName,
+  };
 }

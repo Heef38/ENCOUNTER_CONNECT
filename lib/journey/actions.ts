@@ -350,21 +350,19 @@ export async function bookMatchedConnectorSlot(
     return { ok: false, error: 'No connector could be matched at this time.' };
   }
 
-  const { data: connector } = await admin
-    .from('connectors')
-    .select('id, scheduling_resource_id')
-    .eq('id', connectorId)
-    .maybeSingle();
-
-  if (!connector?.scheduling_resource_id) {
-    return { ok: false, error: 'Matched connector has no scheduling resource.' };
+  // Resolve the schedulable unit (a team or a solo connector) that holds the
+  // matched connector, so we book against the right resource — the team's
+  // shared calendar for teamed connectors — and can assign every member.
+  const unit = match.units.find((u) => u.connector_ids.includes(connectorId));
+  if (!unit) {
+    return { ok: false, error: 'No scheduling resource is available for that time.' };
   }
 
-  // Create booking against the connector's resource. Use admin so the
+  // Create booking against the unit's resource. Use admin so the
   // participant's RLS doesn't block the insert.
   const bookingResult = await createBooking(admin, {
     appointment_type_id: step.appointment_type_id,
-    resource_id: connector.scheduling_resource_id,
+    resource_id: unit.resource_id,
     starts_at: chosenIso,
     notes: `Auto-matched first meeting for ${participant.first_name} ${participant.last_name}`,
     attendees: [
@@ -387,6 +385,26 @@ export async function bookMatchedConnectorSlot(
     .update({ assigned_connector_id: connectorId })
     .eq('id', participant.id);
 
+  // Record every member of the unit on the participant — the matched
+  // connector is primary, any teammate is secondary. This join table is what
+  // grants the teammate access to the participant (listConnectorParticipants
+  // and getConnectorParticipantAccess read it). Best-effort: the
+  // assigned_connector_id cache above already covers the primary, so a rare
+  // constraint hiccup here must not fail the booking.
+  try {
+    const assignmentRows = unit.connector_ids.map((cid) => ({
+      participant_id: participant.id,
+      connector_id: cid,
+      role: cid === connectorId ? ('primary' as const) : ('secondary' as const),
+      assigned_at: new Date().toISOString(),
+    }));
+    await admin
+      .from('participant_connectors')
+      .upsert(assignmentRows, { onConflict: 'participant_id,connector_id' });
+  } catch (err) {
+    console.error('[journey] team assignment upsert failed:', err);
+  }
+
   const { error: linkErr } = await admin
     .from('participant_progress')
     .update({ scheduled_event_id: bookingResult.data.id })
@@ -400,16 +418,19 @@ export async function bookMatchedConnectorSlot(
     entity_id: progressId,
     metadata: {
       connector_id: connectorId,
+      team_id: unit.team_id,
+      member_connector_ids: unit.connector_ids,
       booking_id: bookingResult.data.id,
       starts_at: chosenIso,
     },
   });
 
   // Best-effort notifications. Failures here must not block booking.
+  // Fan out to every member of the unit (both connectors on a team).
   try {
     await enqueueMeetingScheduled(admin, {
       participantId: participant.id,
-      connectorId,
+      connectorIds: unit.connector_ids,
       bookingId: bookingResult.data.id,
       startsAt: new Date(chosenIso),
     });

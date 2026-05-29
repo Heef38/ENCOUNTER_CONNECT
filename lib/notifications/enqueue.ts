@@ -238,7 +238,8 @@ export async function enqueueMeetingScheduled(
   admin: SupabaseClient,
   args: {
     participantId: string;
-    connectorId: string;
+    /** Every connector on the meeting. A team has 2; a solo connector has 1. */
+    connectorIds: string[];
     bookingId: string;
     startsAt: Date;
     notifyConnector?: boolean;
@@ -249,7 +250,7 @@ export async function enqueueMeetingScheduled(
   const notifyParticipant = args.notifyParticipant ?? true;
   if (!notifyConnector && !notifyParticipant) return;
 
-  const [participantResult, connectorResult] = await Promise.all([
+  const [participantResult, connectorsResult] = await Promise.all([
     admin
       .from('participants')
       .select('id, first_name, last_name, email, phone, church_id, sms_consent_at')
@@ -260,19 +261,22 @@ export async function enqueueMeetingScheduled(
       .select(
         'id, profile:profiles!connectors_profile_id_fkey(first_name, last_name, email, phone)',
       )
-      .eq('id', args.connectorId)
-      .maybeSingle(),
+      .in('id', args.connectorIds),
   ]);
 
   const participant = participantResult.data as ParticipantContext | null;
   if (!participant) return;
-  const connectorProfile =
-    (connectorResult.data as { profile: ConnectorContact | null } | null)?.profile ?? null;
-  const connectorPhone = connectorProfile?.phone ?? null;
+  const connectorProfiles = (
+    (connectorsResult.data ?? []) as unknown as Array<{ profile: ConnectorContact | null }>
+  )
+    .map((c) => c.profile)
+    .filter((p): p is ConnectorContact => p != null);
 
-  const connectorName = connectorProfile
-    ? `${connectorProfile.first_name ?? ''} ${connectorProfile.last_name ?? ''}`.trim() || 'your connector'
-    : 'your connector';
+  // Participant-facing copy names every connector ("Alice & Bob").
+  const connectorNames = connectorProfiles
+    .map((p) => `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim())
+    .filter(Boolean);
+  const connectorName = connectorNames.length ? connectorNames.join(' & ') : 'your connector';
   const participantName = `${participant.first_name} ${participant.last_name}`.trim();
   const meetingWhen = args.startsAt.toLocaleString(undefined, {
     weekday: 'short',
@@ -289,51 +293,56 @@ export async function enqueueMeetingScheduled(
     meeting_when: meetingWhen,
   };
 
-  if (notifyConnector && connectorProfile?.email) {
+  // Notify EVERY connector on the meeting (both members of a team), by email
+  // and (if a staff number is on file) SMS.
+  if (notifyConnector) {
     const tpl = await loadTemplate(
       admin,
       participant.church_id,
       'meeting_scheduled_to_connector',
     );
-    if (tpl) {
-      const vars = {
-        ...baseVars,
-        recipient_first_name: connectorProfile.first_name ?? '',
-        recipient_last_name: connectorProfile.last_name ?? '',
-      };
-      await admin.from('notification_outbox').insert({
-        church_id: participant.church_id,
-        participant_id: participant.id,
-        template_key: 'meeting_scheduled_to_connector',
-        channel: tpl.channel,
-        recipient_email: connectorProfile.email,
-        recipient_name:
-          [connectorProfile.first_name, connectorProfile.last_name]
-            .filter(Boolean)
-            .join(' ')
-            .trim() || null,
-        subject: tpl.subject ? render(tpl.subject, vars) : null,
-        body: render(tpl.body, vars),
-        status: 'pending',
-        metadata: { trigger: 'meeting_scheduled', booking_id: args.bookingId },
-      });
+    for (const cp of connectorProfiles) {
+      const cName =
+        `${cp.first_name ?? ''} ${cp.last_name ?? ''}`.trim() || 'your connector';
+      if (cp.email && tpl) {
+        const vars = {
+          ...baseVars,
+          recipient_first_name: cp.first_name ?? '',
+          recipient_last_name: cp.last_name ?? '',
+        };
+        await admin.from('notification_outbox').insert({
+          church_id: participant.church_id,
+          participant_id: participant.id,
+          template_key: 'meeting_scheduled_to_connector',
+          channel: tpl.channel,
+          recipient_email: cp.email,
+          recipient_name:
+            [cp.first_name, cp.last_name].filter(Boolean).join(' ').trim() || null,
+          subject: tpl.subject ? render(tpl.subject, vars) : null,
+          body: render(tpl.body, vars),
+          status: 'pending',
+          metadata: { trigger: 'meeting_scheduled', booking_id: args.bookingId },
+        });
+      }
+      if (cp.phone) {
+        await admin.from('notification_outbox').insert({
+          church_id: participant.church_id,
+          participant_id: participant.id,
+          template_key: 'meeting_scheduled_to_connector',
+          channel: 'sms',
+          recipient_phone: cp.phone,
+          recipient_name: cName,
+          subject: null,
+          body: `${participantName} just scheduled a meeting with you for ${meetingWhen}. Open Encounter Connect to confirm.`,
+          status: 'pending',
+          metadata: {
+            trigger: 'meeting_scheduled',
+            booking_id: args.bookingId,
+            channel_hint: 'connector_sms',
+          },
+        });
+      }
     }
-  }
-
-  // Text the connector that a meeting was just scheduled (staff number on file).
-  if (notifyConnector && connectorPhone) {
-    await admin.from('notification_outbox').insert({
-      church_id: participant.church_id,
-      participant_id: participant.id,
-      template_key: 'meeting_scheduled_to_connector',
-      channel: 'sms',
-      recipient_phone: connectorPhone,
-      recipient_name: connectorName,
-      subject: null,
-      body: `${participantName} just scheduled a meeting with you for ${meetingWhen}. Open Encounter Connect to confirm.`,
-      status: 'pending',
-      metadata: { trigger: 'meeting_scheduled', booking_id: args.bookingId, channel_hint: 'connector_sms' },
-    });
   }
 
   if (notifyParticipant) {
@@ -359,6 +368,27 @@ export async function enqueueMeetingScheduled(
       });
     }
   }
+}
+
+/**
+ * Display name for a connector in participant-facing copy. When the connector
+ * is on an active team, the team's name is used so the participant sees a
+ * consistent identity regardless of which member acted.
+ */
+async function resolveConnectorDisplayName(
+  admin: SupabaseClient,
+  connectorId: string,
+  fallback: string,
+): Promise<string> {
+  const { data } = await admin
+    .from('connector_team_members')
+    .select('team:connector_teams!inner(name, is_active)')
+    .eq('connector_id', connectorId)
+    .maybeSingle();
+  const team = (data as unknown as {
+    team: { name: string; is_active: boolean } | null;
+  } | null)?.team;
+  return team && team.is_active ? team.name : fallback;
 }
 
 /**
@@ -394,9 +424,10 @@ export async function enqueueMeetingDecision(
   if (!participant) return;
   const connectorProfile =
     (connectorResult.data as { profile: ConnectorContact | null } | null)?.profile ?? null;
-  const connectorName = connectorProfile
+  const ownName = connectorProfile
     ? `${connectorProfile.first_name ?? ''} ${connectorProfile.last_name ?? ''}`.trim() || 'your connector'
     : 'your connector';
+  const connectorName = await resolveConnectorDisplayName(admin, args.connectorId, ownName);
 
   const meetingWhen = args.startsAt.toLocaleString(undefined, {
     weekday: 'short',
@@ -494,9 +525,10 @@ export async function enqueueMeetingNotes(
   if (!participant) return;
   const connectorProfile =
     (connectorResult.data as { profile: ConnectorContact | null } | null)?.profile ?? null;
-  const connectorName = connectorProfile
+  const ownName = connectorProfile
     ? `${connectorProfile.first_name ?? ''} ${connectorProfile.last_name ?? ''}`.trim() || 'your connector'
     : 'your connector';
+  const connectorName = await resolveConnectorDisplayName(admin, args.connectorId, ownName);
   const participantName = `${participant.first_name} ${participant.last_name}`.trim();
 
   const rows: Record<string, unknown>[] = [];

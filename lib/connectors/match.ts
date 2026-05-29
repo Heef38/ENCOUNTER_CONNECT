@@ -11,12 +11,26 @@ import type {
   SchedulingAvailabilityRule,
   SchedulingBlackout,
 } from '@/lib/scheduling/types';
+import { getActiveTeamsForConnectors } from '@/lib/connector-teams/queries';
+
+/**
+ * A schedulable unit free at a slot: either a connector team (team_id set,
+ * both members in connector_ids, sharing one resource) or a solo connector
+ * (team_id null, one connector). Booking writes to `resource_id`.
+ */
+export interface SlotUnit {
+  resource_id: string;
+  team_id: string | null;
+  connector_ids: string[];
+}
 
 export interface ProposedSlot {
   starts_at: string;
   ends_at: string;
   /** Connectors who are free at this exact slot. The booker picks among these. */
   eligible_connector_ids: string[];
+  /** The schedulable units free at this slot (teams + solo connectors). */
+  units: SlotUnit[];
 }
 
 export interface ProposeSlotsInput {
@@ -45,20 +59,53 @@ export async function listConnectorSlots(
   const dateFrom = now;
   const dateTo = addDays(now, daysAhead);
 
-  // 1. Connectors at this campus with a scheduling resource
+  // 1. Active connectors at this campus. We keep those without an individual
+  //    resource too — a teamed member schedules via the team's shared one.
   const { data: connectors } = await admin
     .from('connectors')
     .select('id, scheduling_resource_id')
     .eq('campus_id', input.campusId)
-    .eq('is_active', true)
-    .not('scheduling_resource_id', 'is', null);
+    .eq('is_active', true);
 
-  type Conn = { id: string; scheduling_resource_id: string };
-  const eligibleConnectors = (connectors ?? []).filter(
-    (c): c is Conn => c.scheduling_resource_id !== null,
+  type Conn = { id: string; scheduling_resource_id: string | null };
+  const activeConnectors = (connectors ?? []) as Conn[];
+  if (activeConnectors.length === 0) return [];
+
+  // 1a. Collapse connectors into schedulable units. A connector on an active
+  //     team becomes part of one team unit (shared resource); the team's
+  //     members are NOT also offered as solo units ("team only").
+  const teamMap = await getActiveTeamsForConnectors(
+    admin,
+    activeConnectors.map((c) => c.id),
   );
+  const teamUnits = new Map<string, SlotUnit>(); // team_id → unit
+  const units: SlotUnit[] = [];
+  for (const conn of activeConnectors) {
+    const team = teamMap.get(conn.id);
+    if (team) {
+      if (!team.resourceId) continue; // team has no shared calendar yet
+      const existing = teamUnits.get(team.teamId);
+      if (existing) {
+        existing.connector_ids.push(conn.id);
+      } else {
+        const unit: SlotUnit = {
+          resource_id: team.resourceId,
+          team_id: team.teamId,
+          connector_ids: [conn.id],
+        };
+        teamUnits.set(team.teamId, unit);
+        units.push(unit);
+      }
+    } else if (conn.scheduling_resource_id) {
+      units.push({
+        resource_id: conn.scheduling_resource_id,
+        team_id: null,
+        connector_ids: [conn.id],
+      });
+    }
+  }
 
-  if (eligibleConnectors.length === 0) return [];
+  if (units.length === 0) return [];
 
   // 2. Appointment type
   const { data: apptType } = await admin
@@ -70,12 +117,12 @@ export async function listConnectorSlots(
   if (!apptType) return [];
   const appt = apptType as SchedulingAppointmentType;
 
-  // 3. For each connector's resource, generate slots in window.
-  // Map: slot key (ISO start) → { ends_at, eligible_connector_ids[] }
-  const slotMap = new Map<string, { ends_at: string; connectorIds: string[] }>();
+  // 3. For each unit's resource, generate slots in window.
+  // Map: slot key (ISO start) → { ends_at, units[] free at that time }
+  const slotMap = new Map<string, { ends_at: string; units: SlotUnit[] }>();
 
-  for (const conn of eligibleConnectors) {
-    const resourceId = conn.scheduling_resource_id;
+  for (const unit of units) {
+    const resourceId = unit.resource_id;
 
     const [{ data: resource }, { data: rules }, { data: blackouts }, { data: bookings }] =
       await Promise.all([
@@ -128,11 +175,11 @@ export async function listConnectorSlots(
       const key = s.starts_at.toISOString();
       const existing = slotMap.get(key);
       if (existing) {
-        existing.connectorIds.push(conn.id);
+        existing.units.push(unit);
       } else {
         slotMap.set(key, {
           ends_at: s.ends_at.toISOString(),
-          connectorIds: [conn.id],
+          units: [unit],
         });
       }
     }
@@ -143,7 +190,10 @@ export async function listConnectorSlots(
     .map(([key, val]) => ({
       starts_at: key,
       ends_at: val.ends_at,
-      eligible_connector_ids: val.connectorIds,
+      units: val.units,
+      eligible_connector_ids: [
+        ...new Set(val.units.flatMap((u) => u.connector_ids)),
+      ],
     }));
 }
 
@@ -162,7 +212,13 @@ export async function proposeConnectorSlots(
   if (all.length === 0) return [];
 
   // Sorted chronologically already.
-  const sorted = all.map((s) => [s.starts_at, { ends_at: s.ends_at, connectorIds: s.eligible_connector_ids }] as const);
+  const sorted = all.map(
+    (s) =>
+      [
+        s.starts_at,
+        { ends_at: s.ends_at, connectorIds: s.eligible_connector_ids, units: s.units },
+      ] as const,
+  );
 
   const picks: ProposedSlot[] = [];
   const usedDays = new Set<string>();
@@ -185,6 +241,7 @@ export async function proposeConnectorSlots(
         starts_at: key,
         ends_at: val.ends_at,
         eligible_connector_ids: val.connectorIds,
+        units: val.units,
       });
       usedDays.add(dayKey(key));
       usedHourBuckets.add(hourKey(key));
