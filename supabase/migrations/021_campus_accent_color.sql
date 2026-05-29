@@ -9,4 +9,4 @@ ALTER TABLE campuses ADD COLUMN accent_color TEXT;
 COMMENT ON COLUMN campuses.accent_color IS
   'Secondary journey accent color (hex). Pairs with brand_color (primary).';
 
-NOTIFY pgrst, 'reload schema';
+NOTIFY pgrst, 'reload schema'; 
