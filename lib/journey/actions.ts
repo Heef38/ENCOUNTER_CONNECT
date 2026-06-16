@@ -14,6 +14,7 @@ import {
 } from '@/lib/notifications/enqueue';
 import { listConnectorSlots, pickLeastLoadedConnector } from '@/lib/connectors/match';
 import { createBooking } from '@/lib/scheduling/services/bookings';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   AssessmentKind,
   AssessmentQuestion,
@@ -218,6 +219,93 @@ export async function selfMarkStepComplete(progressId: string): Promise<ActionRe
 }
 
 /**
+ * Resolves which connector(s) own a booked scheduling resource. On the manual
+ * booking path the participant picks a specific resource, so this is how we
+ * learn who they're actually meeting with. A resource may belong to an active
+ * team (shared calendar → every member) or a solo connector. Returns null when
+ * the resource isn't tied to any connector (e.g. a room), so the caller can
+ * skip connector assignment.
+ */
+async function resolveResourceConnectors(
+  admin: SupabaseClient,
+  resourceId: string,
+): Promise<{ connectorIds: string[] } | null> {
+  const { data: team } = await admin
+    .from('connector_teams')
+    .select('id')
+    .eq('scheduling_resource_id', resourceId)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (team) {
+    const { data: members } = await admin
+      .from('connector_team_members')
+      .select('connector_id')
+      .eq('team_id', (team as { id: string }).id);
+    const ids = (members ?? []).map((m) => (m as { connector_id: string }).connector_id);
+    if (ids.length > 0) return { connectorIds: ids };
+  }
+
+  const { data: solo } = await admin
+    .from('connectors')
+    .select('id')
+    .eq('scheduling_resource_id', resourceId)
+    .eq('is_active', true);
+  const ids = (solo ?? []).map((c) => (c as { id: string }).id);
+  if (ids.length > 0) return { connectorIds: ids };
+
+  return null;
+}
+
+/**
+ * Records the connector(s) behind a manually-booked resource on the
+ * participant, mirroring the auto-match path so they get console write access.
+ * Safe to re-run: it only inserts links that don't already exist and never
+ * demotes or overwrites an existing primary — a manual re-book with someone
+ * else lands as a secondary, and the denormalized `assigned_connector_id`
+ * cache is only set when no primary is on file yet.
+ */
+async function assignManualBookingConnectors(
+  admin: SupabaseClient,
+  participantId: string,
+  connectorIds: string[],
+  primaryId: string,
+): Promise<void> {
+  const { data: existing } = await admin
+    .from('participant_connectors')
+    .select('connector_id, role')
+    .eq('participant_id', participantId);
+
+  const existingIds = new Set(
+    (existing ?? []).map((r) => (r as { connector_id: string }).connector_id),
+  );
+  const hasPrimary = (existing ?? []).some(
+    (r) => (r as { role: string }).role === 'primary',
+  );
+
+  const newRows = connectorIds
+    .filter((cid) => !existingIds.has(cid))
+    .map((cid) => ({
+      participant_id: participantId,
+      connector_id: cid,
+      role:
+        !hasPrimary && cid === primaryId ? ('primary' as const) : ('secondary' as const),
+      assigned_at: new Date().toISOString(),
+    }));
+
+  if (newRows.length > 0) {
+    await admin.from('participant_connectors').insert(newRows);
+  }
+
+  if (!hasPrimary) {
+    await admin
+      .from('participants')
+      .update({ assigned_connector_id: primaryId })
+      .eq('id', participantId);
+  }
+}
+
+/**
  * Links a freshly-created booking to a schedule step's progress row.
  * Used when a participant returns from `/scheduling/new-booking?progress=…`.
  * Verifies ownership and that the booking's appointment_type matches the
@@ -241,7 +329,7 @@ export async function linkBookingToProgress(
       .maybeSingle(),
     supabase
       .from('scheduling_bookings')
-      .select('id, appointment_type_id, status')
+      .select('id, appointment_type_id, status, resource_id, starts_at')
       .eq('id', bookingId)
       .maybeSingle(),
   ]);
@@ -259,6 +347,15 @@ export async function linkBookingToProgress(
     return { ok: false, error: 'Booking type does not match this step.' };
   }
 
+  // Idempotency: a re-entry that links the same booking again must not
+  // re-assign or re-notify. Captured before the update overwrites it.
+  const { data: progRow } = await admin
+    .from('participant_progress')
+    .select('scheduled_event_id')
+    .eq('id', progressId)
+    .maybeSingle();
+  const alreadyLinked = progRow?.scheduled_event_id === bookingId;
+
   const { error } = await admin
     .from('participant_progress')
     .update({ scheduled_event_id: bookingId })
@@ -272,6 +369,43 @@ export async function linkBookingToProgress(
     entity_id: progressId,
     metadata: { booking_id: bookingId },
   });
+
+  // On the manual path the auto-match notifications never fired, so do the
+  // equivalent here: figure out who owns the booked resource, give them
+  // console access to the participant, and notify both sides. Best-effort —
+  // none of this may block the journey step from being marked scheduled.
+  if (!alreadyLinked) {
+    try {
+      const resolved = bookingResult.data.resource_id
+        ? await resolveResourceConnectors(admin, bookingResult.data.resource_id)
+        : null;
+      const connectorIds = resolved?.connectorIds ?? [];
+
+      if (connectorIds.length > 0) {
+        const primaryId =
+          (await pickLeastLoadedConnector(admin, connectorIds)) ?? connectorIds[0];
+        await assignManualBookingConnectors(
+          admin,
+          auth.participantId,
+          connectorIds,
+          primaryId,
+        );
+      }
+
+      // Skip the "your meeting is set" notice for a booking that's already
+      // completed (the meeting has happened); still assigned above.
+      if (bookingResult.data.status !== 'completed') {
+        await enqueueMeetingScheduled(admin, {
+          participantId: auth.participantId,
+          connectorIds,
+          bookingId,
+          startsAt: new Date(bookingResult.data.starts_at),
+        });
+      }
+    } catch (err) {
+      console.error('[journey] manual booking assign/notify failed:', err);
+    }
+  }
 
   // If the booking is already completed, advance the step right now.
   // Otherwise the existing booking-completion path will fire syncScheduleStepFromBooking.

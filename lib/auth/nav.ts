@@ -76,6 +76,7 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
       },
       { href: '/appointments',     label: 'Appointments' },
       { label: 'Journey',          children: JOURNEY_CHILDREN },
+      { href: '/reports',          label: 'Reports' },
       { href: '/settings/campuses', label: 'Campuses' },
     ];
     // Settings is a dropdown of the remaining links — church-admin only.

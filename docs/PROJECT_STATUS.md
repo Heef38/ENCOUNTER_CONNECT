@@ -128,18 +128,35 @@ Delivered after the Phase 1–5 log below (migrations 005–016):
 ## Open items
 
 ### Near term
-- [ ] **Notifications on the manual booking path** — `/scheduling/new-booking`
-      (manual) doesn't enqueue notifications; only auto-match and connector
-      confirm/decline do.
-- [ ] **Connect default flows to live churches** — auto-enrollment only fires
-      when a church/campus has an active `is_default` flow with steps. Audit
-      existing tenants and set defaults where missing.
+- [x] **Notifications on the manual booking path** (2026-06-16) — when a
+      participant links a manually-created booking to a schedule step,
+      `linkBookingToProgress` now resolves the connector(s) behind the booked
+      resource (team or solo), assigns them to the participant (without
+      clobbering an existing primary), and fires `enqueueMeetingScheduled` to
+      both sides — matching the auto-match path. Idempotent on re-link.
+- [x] **Connect default flows to live churches** (2026-06-16) — added
+      `getDefaultFlowCoverage` (`lib/flows/health.ts`), which mirrors
+      `resolveDefaultFlowId` to detect signup paths that would land with an
+      empty journey. The Flows page now shows a warning banner when the
+      church-wide default is missing/empty or any active campus lacks coverage,
+      with a "Create a default flow" link. (Per-tenant defaults are then set by
+      admins through the surfaced gap.)
 - [ ] Mobile-first responsive audit of all EC pages.
 
-### Reporting (not started)
-- [ ] Campus dashboard: flow completion rates, connector activity
-- [ ] Export participant progress as CSV
-- [ ] Connector load-balancing / capacity view
+### Reporting
+- [x] **Campus dashboard: flow completion rates, connector activity**
+      (2026-06-16) — new `/reports` page (campus_admin+, church-scoped) backed
+      by `lib/reports/queries.ts`: per-flow enrollment/completion with a rate
+      bar, and per-connector active/finished/total caseload, upcoming meetings,
+      and average staleness. Linked from the Admin nav.
+- [x] **Export participant progress as CSV** (2026-06-16) —
+      `GET /api/reports/participants` streams an RFC-4180 CSV (campus,
+      connector, status, current step, step counts) via
+      `getParticipantProgressRows` + `participantRowsToCsv`. 403 for non-admins,
+      400 when no single church context. Export button on the Reports page.
+- [x] **Connector load-balancing / capacity view** (2026-06-16) — the connector
+      activity table on `/reports` surfaces caseload size and staleness so
+      admins can spot over/under-loaded connectors; sorted by active load.
 
 ### Launch checklist
 - [ ] Magic-link auth alongside passwords (lower friction for members)

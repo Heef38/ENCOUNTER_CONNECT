@@ -1,15 +1,20 @@
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Plus, AlertTriangle } from 'lucide-react';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { listFlows } from '@/lib/flows/services';
+import { getDefaultFlowCoverage } from '@/lib/flows/health';
 import { requireStaff } from '@/lib/auth/dal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
 export default async function FlowsPage() {
-  await requireStaff();
+  const session = await requireStaff();
   const supabase = await createServerSupabaseClient();
-  const result = await listFlows(supabase);
+  const churchId = session.profile?.church_id ?? null;
+  const [result, coverage] = await Promise.all([
+    listFlows(supabase),
+    churchId ? getDefaultFlowCoverage(supabase, churchId) : Promise.resolve(null),
+  ]);
   const flows = result.success ? result.data : [];
 
   return (
@@ -28,6 +33,34 @@ export default async function FlowsPage() {
           </Button>
         </Link>
       </div>
+
+      {coverage && !coverage.ok && (
+        <div className="flex gap-3 rounded-lg border border-warning/40 bg-warning-bg px-4 py-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-none text-warning" />
+          <div className="text-sm text-foreground">
+            <p className="font-medium">New signups won&apos;t be auto-enrolled into a journey.</p>
+            {!coverage.usableChurchWideDefault && (
+              <p className="mt-1 text-foreground-muted">
+                There&apos;s no church-wide default flow with steps, so church-wide
+                signups land with an empty journey. Mark an active flow as{' '}
+                <span className="font-medium">Default</span> (with no campus) to fix it.
+              </p>
+            )}
+            {coverage.campusesWithoutCoverage.length > 0 && (
+              <p className="mt-1 text-foreground-muted">
+                These campuses have no default flow:{' '}
+                <span className="font-medium">
+                  {coverage.campusesWithoutCoverage.map((c) => c.name).join(', ')}
+                </span>
+                . Set a campus default, or a church-wide one as a fallback.
+              </p>
+            )}
+            <Link href="/flows/new" className="mt-2 inline-block text-primary hover:underline">
+              Create a default flow →
+            </Link>
+          </div>
+        </div>
+      )}
 
       {flows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border-strong bg-surface px-6 py-12 text-center">
