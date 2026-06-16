@@ -125,3 +125,55 @@ export async function deleteTemplate(id: string): Promise<ActionResult> {
   revalidatePath('/settings/notifications');
   return { ok: true };
 }
+
+/** Reads a checkbox: present (any value) = true, absent = false. */
+function checkbox(formData: FormData, name: string): boolean {
+  return formData.get(name) !== null;
+}
+
+/** Reads a positive-integer day field, clamped to >= 1, with a fallback. */
+function dayField(formData: FormData, name: string, fallback: number): number {
+  const raw = Number.parseInt(String(formData.get(name) ?? ''), 10);
+  return Number.isFinite(raw) && raw >= 1 ? raw : fallback;
+}
+
+export async function updateNotificationSettings(
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireCampusAdmin();
+  const churchId = session.profile?.church_id;
+  if (!churchId) return { ok: false, error: 'No church context.' };
+
+  const first = dayField(formData, 'stale_first_reminder_days', 3);
+  const second = dayField(formData, 'stale_second_reminder_days', 7);
+
+  const row = {
+    church_id: churchId,
+    step_complete_to_connector_enabled: checkbox(formData, 'step_complete_to_connector_enabled'),
+    meeting_scheduled_enabled: checkbox(formData, 'meeting_scheduled_enabled'),
+    meeting_decision_enabled: checkbox(formData, 'meeting_decision_enabled'),
+    meeting_notes_enabled: checkbox(formData, 'meeting_notes_enabled'),
+    stale_reminders_enabled: checkbox(formData, 'stale_reminders_enabled'),
+    availability_reminders_enabled: checkbox(formData, 'availability_reminders_enabled'),
+    stale_first_reminder_days: first,
+    stale_second_reminder_days: second,
+    availability_reminder_horizon_days: dayField(formData, 'availability_reminder_horizon_days', 14),
+    availability_reminder_interval_days: dayField(formData, 'availability_reminder_interval_days', 7),
+  };
+
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase
+    .from('notification_settings')
+    .upsert(row, { onConflict: 'church_id' });
+  if (error) return { ok: false, error: error.message };
+
+  await recordAudit({
+    action: 'notification_settings.update',
+    entity_type: 'notification_settings',
+    entity_id: churchId,
+    metadata: row,
+  });
+
+  revalidatePath('/settings/notifications');
+  return { ok: true };
+}

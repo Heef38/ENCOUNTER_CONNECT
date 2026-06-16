@@ -6,6 +6,8 @@ import type {
   NotificationTemplate,
   NotificationTemplateKey,
 } from './types';
+import { getNotificationSettings, type NotificationSettings } from './settings';
+import { getActiveTeamsForConnectors } from '@/lib/connector-teams/queries';
 
 /**
  * Hardcoded fallback templates used when a church hasn't customized the
@@ -76,6 +78,16 @@ const DEFAULT_TEMPLATES: Record<
       'Hi {{participant_first_name}},\n\n' +
       "{{connector_name}} can\'t make the time you picked ({{meeting_when}}). " +
       "Open Encounter Connect to choose a different slot — we\'ll match you with whoever\'s free.\n\n" +
+      '— Encounter Connect',
+  },
+  connector_availability_reminder: {
+    channel: 'email',
+    subject: 'Add your availability so people can book with you',
+    body:
+      'Hi {{recipient_first_name}},\n\n' +
+      'You don\'t have any availability set for the next {{horizon_days}} days, so ' +
+      'participants can\'t book a meeting with you right now.\n' +
+      'Open Encounter Connect and add the times you\'re free to meet.\n\n' +
       '— Encounter Connect',
   },
 };
@@ -174,6 +186,9 @@ export async function enqueueStepCompletionNotice(
   if (!participant) return;
   if (!participant.assigned_connector_id) return; // no one to notify
 
+  const settings = await getNotificationSettings(admin, participant.church_id);
+  if (!settings.step_complete_to_connector_enabled) return;
+
   const [stepResult, connectorResult] = await Promise.all([
     admin
       .from('flow_steps')
@@ -266,6 +281,10 @@ export async function enqueueMeetingScheduled(
 
   const participant = participantResult.data as ParticipantContext | null;
   if (!participant) return;
+
+  const settings = await getNotificationSettings(admin, participant.church_id);
+  if (!settings.meeting_scheduled_enabled) return;
+
   const connectorProfiles = (
     (connectorsResult.data ?? []) as unknown as Array<{ profile: ConnectorContact | null }>
   )
@@ -429,6 +448,9 @@ export async function enqueueMeetingDecision(
     : 'your connector';
   const connectorName = await resolveConnectorDisplayName(admin, args.connectorId, ownName);
 
+  const settings = await getNotificationSettings(admin, participant.church_id);
+  if (!settings.meeting_decision_enabled) return;
+
   const meetingWhen = args.startsAt.toLocaleString(undefined, {
     weekday: 'short',
     month: 'short',
@@ -531,6 +553,9 @@ export async function enqueueMeetingNotes(
   const connectorName = await resolveConnectorDisplayName(admin, args.connectorId, ownName);
   const participantName = `${participant.first_name} ${participant.last_name}`.trim();
 
+  const settings = await getNotificationSettings(admin, participant.church_id);
+  if (!settings.meeting_notes_enabled) return;
+
   const rows: Record<string, unknown>[] = [];
   const meta = { trigger: 'meeting_notes', connector_id: args.connectorId };
 
@@ -603,7 +628,10 @@ export async function enqueueStaleReminders(
   };
 
   const now = Date.now();
-  const threshold3 = new Date(now - 3 * DAY_MS).toISOString();
+  // Prefilter with a 1-day floor so churches that set a first-reminder
+  // threshold below the default 3 days are still caught; exact per-church
+  // thresholds are applied in the loop below.
+  const prefilter = new Date(now - 1 * DAY_MS).toISOString();
 
   const { data: rows } = await admin
     .from('participant_progress')
@@ -615,7 +643,7 @@ export async function enqueueStaleReminders(
        flow_step:flow_steps!inner(id, title)`,
     )
     .eq('status', 'in_progress')
-    .lt('updated_at', threshold3);
+    .lt('updated_at', prefilter);
 
   type Row = {
     participant_id: string;
@@ -651,19 +679,41 @@ export async function enqueueStaleReminders(
     return t;
   }
 
+  // Cache settings per church.
+  const settingsCache = new Map<string, NotificationSettings>();
+  async function getSettings(churchId: string) {
+    const cached = settingsCache.get(churchId);
+    if (cached) return cached;
+    const s = await getNotificationSettings(admin, churchId);
+    settingsCache.set(churchId, s);
+    return s;
+  }
+
   for (const row of list) {
     if (row.participant.status === 'inactive' || row.participant.status === 'completed') {
       continue;
     }
+
+    const settings = await getSettings(row.participant.church_id);
+    if (!settings.stale_reminders_enabled) continue;
 
     churches.add(row.participant.church_id);
 
     const idleMs = now - new Date(row.updated_at).getTime();
     const idleDays = idleMs / DAY_MS;
 
-    const tiers: Array<{ key: NotificationTemplateKey; days: number }> = [];
-    if (idleDays >= 3) tiers.push({ key: 'step_stale_3_day', days: 3 });
-    if (idleDays >= 7) tiers.push({ key: 'step_stale_7_day', days: 7 });
+    // Tier days come from the church's settings (defaults 3 / 7). The first
+    // tier reuses the step_stale_3_day template key, the second 7_day.
+    const tiers: Array<{ key: NotificationTemplateKey; days: number; tier: 'first' | 'second' }> = [];
+    if (idleDays >= settings.stale_first_reminder_days) {
+      tiers.push({ key: 'step_stale_3_day', days: settings.stale_first_reminder_days, tier: 'first' });
+    }
+    if (
+      settings.stale_second_reminder_days > settings.stale_first_reminder_days &&
+      idleDays >= settings.stale_second_reminder_days
+    ) {
+      tiers.push({ key: 'step_stale_7_day', days: settings.stale_second_reminder_days, tier: 'second' });
+    }
 
     for (const tier of tiers) {
       const idempotencyKey = `stale:${row.participant.id}:${row.flow_step.id}:${tier.days}d`;
@@ -703,12 +753,208 @@ export async function enqueueStaleReminders(
           report.skippedDuplicate += 1;
         }
       } else {
-        if (tier.days === 3) report.enqueued3Day += 1;
-        else if (tier.days === 7) report.enqueued7Day += 1;
+        if (tier.tier === 'first') report.enqueued3Day += 1;
+        else report.enqueued7Day += 1;
       }
     }
   }
 
   report.churchesScanned = churches.size;
+  return report;
+}
+
+interface AvailabilityReminderReport {
+  connectorsScanned: number;
+  unitsNeedingAvailability: number;
+  enqueued: number;
+  skippedDuplicate: number;
+}
+
+/**
+ * Sweeps for connectors (and connector teams) who have no availability set
+ * for the near future and enqueues a reminder to each. Team-aware: a team's
+ * SHARED calendar is checked once, and both members are reminded only when
+ * it's empty — so one member isn't nagged after the other filled it.
+ *
+ * Idempotent per church-configured interval: each (connector, channel,
+ * interval-bucket) has a unique outbox key, so a connector is reminded at
+ * most once per `availability_reminder_interval_days` until they fill it.
+ *
+ * Intended for a weekly cron. See
+ * app/api/cron/notifications-availability-reminders/route.ts.
+ */
+export async function enqueueAvailabilityReminders(
+  admin: SupabaseClient,
+): Promise<AvailabilityReminderReport> {
+  const report: AvailabilityReminderReport = {
+    connectorsScanned: 0,
+    unitsNeedingAvailability: 0,
+    enqueued: 0,
+    skippedDuplicate: 0,
+  };
+
+  const { data: connectorsRaw } = await admin
+    .from('connectors')
+    .select(
+      'id, church_id, scheduling_resource_id, profile:profiles!connectors_profile_id_fkey(first_name, last_name, email, phone)',
+    )
+    .eq('is_active', true);
+
+  type Conn = {
+    id: string;
+    church_id: string | null;
+    scheduling_resource_id: string | null;
+    profile: {
+      first_name: string | null;
+      last_name: string | null;
+      email: string | null;
+      phone: string | null;
+    } | null;
+  };
+  const connectors = (connectorsRaw ?? []) as unknown as Conn[];
+  report.connectorsScanned = connectors.length;
+  if (connectors.length === 0) return report;
+
+  const connById = new Map(connectors.map((c) => [c.id, c]));
+
+  const settingsCache = new Map<string, NotificationSettings>();
+  async function getSettings(churchId: string) {
+    const cached = settingsCache.get(churchId);
+    if (cached) return cached;
+    const s = await getNotificationSettings(admin, churchId);
+    settingsCache.set(churchId, s);
+    return s;
+  }
+
+  // Collapse connectors into scheduling units (team = one shared resource +
+  // both members; solo = own resource), reusing the teams query.
+  const teamMap = await getActiveTeamsForConnectors(
+    admin,
+    connectors.map((c) => c.id),
+  );
+  interface Unit {
+    resourceId: string | null;
+    churchId: string;
+    memberConnectorIds: string[];
+  }
+  const teamUnits = new Map<string, Unit>();
+  const units: Unit[] = [];
+  for (const c of connectors) {
+    if (!c.church_id) continue;
+    const team = teamMap.get(c.id);
+    if (team) {
+      const existing = teamUnits.get(team.teamId);
+      if (existing) {
+        existing.memberConnectorIds.push(c.id);
+      } else {
+        const unit: Unit = {
+          resourceId: team.resourceId,
+          churchId: c.church_id,
+          memberConnectorIds: [c.id],
+        };
+        teamUnits.set(team.teamId, unit);
+        units.push(unit);
+      }
+    } else {
+      units.push({
+        resourceId: c.scheduling_resource_id,
+        churchId: c.church_id,
+        memberConnectorIds: [c.id],
+      });
+    }
+  }
+
+  const now = Date.now();
+  const todayStr = new Date(now).toISOString().slice(0, 10);
+
+  for (const unit of units) {
+    const settings = await getSettings(unit.churchId);
+    if (!settings.availability_reminders_enabled) continue;
+
+    const horizon = Math.max(1, settings.availability_reminder_horizon_days);
+    const interval = Math.max(1, settings.availability_reminder_interval_days);
+    const horizonStr = new Date(now + horizon * DAY_MS).toISOString().slice(0, 10);
+
+    // Does the unit have any availability in the horizon window?
+    let hasAvailability = false;
+    if (unit.resourceId) {
+      const { count } = await admin
+        .from('scheduling_availability_rules')
+        .select('id', { count: 'exact', head: true })
+        .eq('resource_id', unit.resourceId)
+        .eq('rule_type', 'date_specific')
+        .eq('is_active', true)
+        .gte('effective_from', todayStr)
+        .lte('effective_from', horizonStr);
+      hasAvailability = (count ?? 0) > 0;
+    }
+    if (hasAvailability) continue;
+
+    report.unitsNeedingAvailability += 1;
+
+    const template = await loadTemplate(admin, unit.churchId, 'connector_availability_reminder');
+    if (!template) continue;
+
+    // Interval bucket: a connector is reminded at most once per interval.
+    const bucket = Math.floor(now / DAY_MS / interval);
+
+    for (const connectorId of unit.memberConnectorIds) {
+      const conn = connById.get(connectorId);
+      if (!conn?.profile) continue;
+      const first = conn.profile.first_name ?? '';
+      const name = `${first} ${conn.profile.last_name ?? ''}`.trim() || null;
+      const vars: Record<string, string> = {
+        recipient_first_name: first,
+        horizon_days: String(horizon),
+      };
+
+      if (conn.profile.email) {
+        const insert = await admin.from('notification_outbox').insert({
+          church_id: unit.churchId,
+          template_key: 'connector_availability_reminder',
+          channel: 'email',
+          recipient_email: conn.profile.email,
+          recipient_name: name,
+          subject: template.subject ? render(template.subject, vars) : null,
+          body: render(template.body, vars),
+          status: 'pending',
+          metadata: { trigger: 'availability_reminder', connector_id: connectorId },
+          idempotency_key: `avail_reminder:${connectorId}:email:${bucket}`,
+        });
+        if (insert.error) {
+          if (insert.error.code === '23505') report.skippedDuplicate += 1;
+        } else {
+          report.enqueued += 1;
+        }
+      }
+
+      if (conn.profile.phone) {
+        const insert = await admin.from('notification_outbox').insert({
+          church_id: unit.churchId,
+          template_key: 'connector_availability_reminder',
+          channel: 'sms',
+          recipient_phone: conn.profile.phone,
+          recipient_name: name,
+          subject: null,
+          body:
+            `You have no availability set for the next ${horizon} days, so no one ` +
+            `can book a meeting with you. Open Encounter Connect to add times.`,
+          status: 'pending',
+          metadata: {
+            trigger: 'availability_reminder',
+            connector_id: connectorId,
+            channel_hint: 'connector_sms',
+          },
+          idempotency_key: `avail_reminder:${connectorId}:sms:${bucket}`,
+        });
+        if (insert.error) {
+          if (insert.error.code === '23505') report.skippedDuplicate += 1;
+        } else {
+          report.enqueued += 1;
+        }
+      }
+    }
+  }
+
   return report;
 }

@@ -7,6 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { DrainButton } from './drain-button';
 import { DeleteOutboxButton } from './outbox-row-actions';
+import { NotificationSettingsForm, type CatalogItem } from './settings-form';
+import {
+  getNotificationSettings,
+  NOTIFICATION_CATALOG,
+} from '@/lib/notifications/settings';
+import { updateNotificationSettings } from '@/lib/notifications/actions';
 import type {
   NotificationTemplate,
   NotificationOutboxRow,
@@ -43,6 +49,26 @@ export default async function NotificationsSettingsPage() {
           .limit(50)
       : Promise.resolve({ data: [] }),
   ]);
+
+  const settings = churchId
+    ? await getNotificationSettings(supabase, churchId)
+    : null;
+  const catalogItems: CatalogItem[] = settings
+    ? NOTIFICATION_CATALOG.map((e) => ({
+        toggle: e.toggle,
+        label: e.label,
+        trigger: e.trigger,
+        audience: e.audience,
+        channels: e.channels,
+        kind: e.kind,
+        cadenceText: e.cadence?.(settings),
+      }))
+    : [];
+
+  async function saveSettings(_prev: unknown, formData: FormData) {
+    'use server';
+    return updateNotificationSettings(formData);
+  }
 
   const templates = (templatesResult.data ?? []) as NotificationTemplate[];
   const outbox = (outboxResult.data ?? []) as Pick<
@@ -81,6 +107,25 @@ export default async function NotificationsSettingsPage() {
           key to override the default body.
         </p>
       </div>
+
+      {settings && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-display text-base font-semibold text-foreground">
+              Notification settings
+            </h2>
+            <p className="text-xs text-foreground-subtle">
+              Turn each notification on or off, and tune how often the scheduled
+              reminders go out.
+            </p>
+          </div>
+          <NotificationSettingsForm
+            items={catalogItems}
+            settings={settings}
+            action={saveSettings}
+          />
+        </section>
+      )}
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">

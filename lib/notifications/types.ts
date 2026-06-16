@@ -13,7 +13,8 @@ export type NotificationTemplateKey =
   | 'meeting_scheduled_to_connector'
   | 'meeting_scheduled_to_participant'
   | 'meeting_confirmed_to_participant'
-  | 'meeting_declined_to_participant';
+  | 'meeting_declined_to_participant'
+  | 'connector_availability_reminder';
 
 export interface NotificationTemplate {
   id: string;
