@@ -2,9 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+} from '@/lib/supabase/server';
 import { requirePlatformAdmin } from '@/lib/auth/dal';
 import { recordAudit } from '@/lib/audit/log';
+import { uploadChurchAsset } from '@/lib/storage/files';
 
 export interface ActionResult {
   ok: boolean;
@@ -25,6 +29,23 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 64);
+}
+
+/** Uploaded logo file wins over the URL text field. */
+async function resolveLogoUrl(
+  formData: FormData,
+  churchId: string,
+): Promise<{ ok: true; logo_url: string | null } | { ok: false; error: string }> {
+  const upload = formData.get('logo_file');
+  if (upload instanceof File && upload.size > 0) {
+    const admin = await createServiceRoleClient();
+    const result = await uploadChurchAsset(admin, churchId, 'logo', upload);
+    if (!result.ok || !result.value) {
+      return { ok: false, error: result.error ?? 'Logo upload failed.' };
+    }
+    return { ok: true, logo_url: result.value };
+  }
+  return { ok: true, logo_url: nullable(formData.get('logo_url')) };
 }
 
 export async function createChurch(formData: FormData): Promise<ActionResult> {
@@ -57,6 +78,16 @@ export async function createChurch(formData: FormData): Promise<ActionResult> {
 
   if (error) return { ok: false, error: error.message };
 
+  // Logo files live under the church's folder, so the upload happens after
+  // the insert gives us an id.
+  const logoField = await resolveLogoUrl(formData, data.id);
+  if (logoField.ok && logoField.logo_url && logoField.logo_url !== logo_url) {
+    await supabase
+      .from('churches')
+      .update({ logo_url: logoField.logo_url })
+      .eq('id', data.id);
+  }
+
   await recordAudit({
     action: 'church.create',
     entity_type: 'church',
@@ -82,9 +113,12 @@ export async function updateChurch(
   const timezoneRaw = nullable(formData.get('timezone'));
   const timezone = timezoneRaw ?? 'America/Chicago';
   const description = nullable(formData.get('description'));
-  const logo_url = nullable(formData.get('logo_url'));
   const brand_color = nullable(formData.get('brand_color'));
   const is_active = formData.get('is_active') === 'on';
+
+  const logoField = await resolveLogoUrl(formData, id);
+  if (!logoField.ok) return { ok: false, error: logoField.error };
+  const logo_url = logoField.logo_url;
 
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase

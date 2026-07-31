@@ -1,7 +1,11 @@
 import Link from 'next/link';
 import { ChevronLeft, Plus, ExternalLink } from 'lucide-react';
 import { requireCampusAdmin } from '@/lib/auth/dal';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+} from '@/lib/supabase/server';
+import { resolveDocFileUrl } from '@/lib/storage/files';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
@@ -43,7 +47,16 @@ export default async function ConnectDocsSettingsPage() {
   }
 
   const { data, error } = await q;
-  const docs = (data ?? []) as unknown as Row[];
+  const rows = (data ?? []) as unknown as Row[];
+
+  // Storage-path file_urls need short-lived signed URLs to open.
+  const admin = await createServiceRoleClient();
+  const docs = await Promise.all(
+    rows.map(async (d) => ({
+      ...d,
+      file_href: await resolveDocFileUrl(admin, d.file_url),
+    })),
+  );
 
   return (
     <div className="space-y-6">
@@ -126,9 +139,9 @@ export default async function ConnectDocsSettingsPage() {
                     )}
                   </TD>
                   <TD>
-                    {d.file_url ? (
+                    {d.file_href ? (
                       <a
-                        href={d.file_url}
+                        href={d.file_href}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-primary hover:underline"

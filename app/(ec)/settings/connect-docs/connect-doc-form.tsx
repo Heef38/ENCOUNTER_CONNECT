@@ -35,6 +35,11 @@ export function ConnectDocForm({
   redirectOnSuccess,
 }: Props) {
   const router = useRouter();
+  // file_url holds either an external link or a private storage path; only
+  // external links belong in the URL input.
+  const isExternal = !!doc?.file_url && /^https?:\/\//i.test(doc.file_url);
+  const hasStoredFile = !!doc?.file_url && !isExternal;
+  const externalUrl = isExternal ? doc!.file_url! : '';
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     async (prev, formData) => {
       const result = await action(prev, formData);
@@ -112,18 +117,44 @@ export function ConnectDocForm({
         />
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="file_url">File URL (optional)</Label>
-        <Input
-          id="file_url"
-          name="file_url"
-          type="url"
-          defaultValue={doc?.file_url ?? ''}
-          placeholder="https://…"
-        />
-        <p className="text-xs text-foreground-subtle">
-          Link to a PDF or external resource. You can also fill in the body below for inline content.
-        </p>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="file">Upload a file (optional)</Label>
+          <Input
+            id="file"
+            name="file"
+            type="file"
+            accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.webp"
+            className="h-auto py-1.5"
+          />
+          <p className="text-xs text-foreground-subtle">
+            Stored privately — only people in your church can open it. Replaces
+            any current upload.
+          </p>
+          {hasStoredFile && (
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground-muted">
+              <input
+                type="checkbox"
+                name="remove_file"
+                className="h-3.5 w-3.5 rounded border-border accent-primary"
+              />
+              A file is attached — check to remove it
+            </label>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="file_url">…or link a URL</Label>
+          <Input
+            id="file_url"
+            name="file_url"
+            type="url"
+            defaultValue={externalUrl}
+            placeholder="https://…"
+          />
+          <p className="text-xs text-foreground-subtle">
+            External resource link. An uploaded file takes priority over this.
+          </p>
+        </div>
       </div>
 
       <div className="space-y-1.5">

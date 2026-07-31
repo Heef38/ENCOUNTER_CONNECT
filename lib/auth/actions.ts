@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { landingForSession } from '@/lib/auth/dal';
 import type { Profile } from '@/lib/church/types';
@@ -48,6 +49,49 @@ export async function signInAction(
       profile: (profile as Profile | null) ?? null,
     }),
   );
+}
+
+export interface MagicLinkState {
+  error?: string;
+  sent?: boolean;
+}
+
+export async function sendMagicLinkAction(
+  _prev: MagicLinkState | undefined,
+  formData: FormData,
+): Promise<MagicLinkState> {
+  const email = String(formData.get('email') ?? '').trim();
+  if (!email) {
+    return { error: 'Email is required.' };
+  }
+
+  const headerList = await headers();
+  const origin =
+    headerList.get('origin') ??
+    `https://${headerList.get('host') ?? 'encounter-connect.app'}`;
+
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      // Existing accounts only — new people go through /signup so they get
+      // a church, profile, and journey. A link for an unknown email would
+      // create an orphan auth user with no profile row.
+      shouldCreateUser: false,
+      emailRedirectTo: `${origin}/auth/confirm`,
+    },
+  });
+
+  if (error) {
+    // Supabase reports unknown emails as a signup-disabled error when
+    // shouldCreateUser is false. Don't leak which emails exist.
+    if (/signup/i.test(error.message)) {
+      return { sent: true };
+    }
+    return { error: error.message };
+  }
+
+  return { sent: true };
 }
 
 export async function signOutAction(): Promise<void> {

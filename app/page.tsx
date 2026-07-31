@@ -3,11 +3,17 @@ import { getSession, landingForSession } from '@/lib/auth/dal';
 import { LoginForm } from '@/components/auth/login-form';
 import { Card, CardContent } from '@/components/ui/card';
 
-export default async function LandingPage() {
+export default async function LandingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ auth_error?: string }>;
+}) {
   const session = await getSession();
   if (session) {
     redirect(await landingForSession(session));
   }
+
+  const { auth_error: authError } = await searchParams;
 
   return (
     <main className="relative flex min-h-screen flex-col bg-background">
@@ -66,6 +72,12 @@ export default async function LandingPage() {
                     Sign in to continue your journey.
                   </p>
                 </div>
+                {authError && (
+                  <p className="mb-4 rounded-md bg-danger-bg px-3 py-2 text-sm text-danger">
+                    That sign-in link didn&apos;t work — it may have expired.
+                    Request a fresh one below.
+                  </p>
+                )}
                 <LoginForm />
               </CardContent>
             </Card>

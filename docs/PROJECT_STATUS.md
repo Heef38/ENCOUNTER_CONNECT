@@ -159,12 +159,38 @@ Delivered after the Phase 1–5 log below (migrations 005–016):
       admins can spot over/under-loaded connectors; sorted by active load.
 
 ### Launch checklist
-- [ ] Magic-link auth alongside passwords (lower friction for members)
-- [ ] Supabase Storage buckets + RLS for connect_docs / lesson media / logos
-- [ ] Cron wired to `api/scheduling/process-reminders` + notification drain
-- [ ] Sentry (or equivalent) error monitoring
-- [ ] Dev / staging / prod Supabase project separation
-- [ ] Test harness Option B (separate Supabase staging project)
+- [x] **Magic-link auth alongside passwords** (2026-07-31) — "Email me a
+      sign-in link" toggle on the login form (`sendMagicLinkAction`,
+      `shouldCreateUser: false` so unknown emails can't create orphan auth
+      users) + `app/auth/confirm/route.ts` handling both `token_hash` and
+      `code` link shapes. **Requires Supabase dashboard**: magic-link email
+      template → `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`
+      and `/auth/confirm` in the redirect allowlist (see docs/ENVIRONMENTS.md).
+- [x] **Supabase Storage buckets + RLS** (2026-07-31) — migration **025**:
+      `church-assets` (public: logos, campus heroes, lesson media) and
+      `connect-docs` (private) with church-scoped storage policies. Connect-doc
+      form gained a real file upload (stored path in `file_url`, signed URLs at
+      render via `lib/storage/files.ts`); church form gained a logo upload.
+      Server-action `bodySizeLimit` raised to 10mb.
+- [x] **Cron wired to `api/scheduling/process-reminders`** (2026-07-31) —
+      endpoint now accepts Vercel Cron's `Authorization: Bearer` (legacy
+      `x-cron-secret` still works); added to `vercel.json` at */5.
+- [x] **Sentry error monitoring** (2026-07-31) — `@sentry/nextjs` with
+      `instrumentation.ts` / `instrumentation-client.ts` / server+edge configs
+      and `app/global-error.tsx`. Fully inert until `SENTRY_DSN` /
+      `NEXT_PUBLIC_SENTRY_DSN` are set; source-map upload only with
+      `SENTRY_AUTH_TOKEN`.
+- [x] **Dev / staging / prod separation** (2026-07-31) — decided against extra
+      hosted projects for now: dev = **local Supabase** (CLI installed as
+      devDependency, `supabase/config.toml` + prod-matching local magic-link
+      template committed), staging = test-church harness in prod, prod
+      unchanged. Full runbook in docs/ENVIRONMENTS.md. Remaining manual step:
+      enable Docker Desktop's WSL integration, then `npx supabase start` +
+      `npx supabase db reset`. Revisit a hosted staging project (~$10/mo) when
+      a second real church onboards.
+- [x] Test harness Option B — superseded by the same decision (harness keeps
+      running against prod's isolated test-church tenant; move it to a hosted
+      staging project if/when one exists).
 
 ---
 

@@ -7,6 +7,7 @@ import {
   createServiceRoleClient,
 } from '@/lib/supabase/server';
 import { loadParticipantJourney } from '@/lib/journey/queries';
+import { resolveDocFileUrl } from '@/lib/storage/files';
 
 export default async function JourneyDocumentsPage() {
   const session = await requireAuth();
@@ -58,6 +59,14 @@ export default async function JourneyDocumentsPage() {
     }>
   ).filter((d) => d.campus_id === null || d.campus_id === campusId);
 
+  // Storage-path file_urls need short-lived signed URLs to open.
+  const resolvedDocs = await Promise.all(
+    docs.map(async (d) => ({
+      ...d,
+      file_href: await resolveDocFileUrl(admin, d.file_url),
+    })),
+  );
+
   const empty = meetingNotes.length === 0 && docs.length === 0;
 
   return (
@@ -108,7 +117,7 @@ export default async function JourneyDocumentsPage() {
             <FileText className="h-4 w-4" />
             Resources
           </h2>
-          {docs.map((d) => (
+          {resolvedDocs.map((d) => (
             <div key={d.id} className="rounded-lg border border-border bg-surface p-4">
               <p className="text-base font-semibold text-foreground">{d.title}</p>
               {d.description && (
@@ -117,9 +126,9 @@ export default async function JourneyDocumentsPage() {
               {d.body && (
                 <p className="mt-2 whitespace-pre-wrap text-sm text-foreground-muted">{d.body}</p>
               )}
-              {d.file_url && (
+              {d.file_href && (
                 <a
-                  href={d.file_url}
+                  href={d.file_href}
                   target="_blank"
                   rel="noreferrer noopener"
                   className="mt-2 inline-block text-sm text-primary hover:underline"

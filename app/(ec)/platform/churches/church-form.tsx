@@ -100,8 +100,21 @@ export function ChurchForm({
       <section className="space-y-4">
         <h2 className="font-display text-base font-semibold text-foreground">Branding</h2>
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1.5 md:col-span-2">
-            <Label htmlFor="logo_url">Logo URL</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="logo_file">Upload logo</Label>
+            <Input
+              id="logo_file"
+              name="logo_file"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              className="h-auto py-1.5"
+            />
+            <p className="text-xs text-foreground-subtle">
+              Stored on the platform; takes priority over the URL field.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="logo_url">…or logo URL</Label>
             <Input
               id="logo_url"
               name="logo_url"

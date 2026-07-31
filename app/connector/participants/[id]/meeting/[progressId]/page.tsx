@@ -14,6 +14,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { MeetingNotesEditor } from './meeting-notes-editor';
+import { resolveDocFileUrl } from '@/lib/storage/files';
 import type { AssessmentCategory } from '@/lib/assessments/types';
 
 export default async function MeetingRoomPage({
@@ -111,6 +112,14 @@ export default async function MeetingRoomPage({
     church_id: string;
   }>).filter((d) => d.church_id === churchId);
 
+  // Storage-path file_urls need short-lived signed URLs to open.
+  const staffDocsResolved = await Promise.all(
+    staffDocs.map(async (d) => ({
+      ...d,
+      file_href: await resolveDocFileUrl(admin, d.file_url),
+    })),
+  );
+
   return (
     <div className="space-y-6">
       <Link
@@ -162,7 +171,7 @@ export default async function MeetingRoomPage({
           </p>
         ) : (
           <div className="space-y-2">
-            {staffDocs.map((d) => (
+            {staffDocsResolved.map((d) => (
               <Card key={d.id}>
                 <CardContent className="space-y-1 p-4">
                   <p className="text-sm font-semibold text-foreground">{d.title}</p>
@@ -172,9 +181,9 @@ export default async function MeetingRoomPage({
                   {d.body && (
                     <p className="whitespace-pre-wrap text-sm text-foreground-muted">{d.body}</p>
                   )}
-                  {d.file_url && (
+                  {d.file_href && (
                     <a
-                      href={d.file_url}
+                      href={d.file_href}
                       target="_blank"
                       rel="noreferrer noopener"
                       className="inline-block text-sm text-primary hover:underline"
