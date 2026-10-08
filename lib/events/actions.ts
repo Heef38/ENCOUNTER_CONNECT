@@ -1,12 +1,21 @@
 'use server';
 
+import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { requireAuth, requireCampusAdmin, getSession } from '@/lib/auth/dal';
 import { recordAudit } from '@/lib/audit/log';
+import { getChurchContext } from '@/lib/church/context';
+import { geocodeAddress } from '@/lib/geo/geocode';
+import { addDaysToDateKey, zonedWallTimeToUtc } from '@/lib/time/zoned';
+import {
+  enqueueEventCancelled,
+  enqueueEventReported,
+  enqueueMessageToHost,
+} from '@/lib/notifications/events';
 import { materializeEligibilityRing } from './audience';
 import type {
-  CreateEventInput,
+  EventInput,
   EventRow,
   ReportReason,
   ReportResolution,
@@ -15,159 +24,414 @@ import type {
 } from './types';
 
 /**
- * Event lifecycle: create, RSVP, cancel, report, pin.
+ * Gathering lifecycle: create (once or weekly), edit, publish, RSVP, check
+ * in, cancel, report, pin, message the host.
  *
- * Phase 1 publishes SILENTLY — no notification fan-out yet. That lands in
- * phase 2 along with profiles-based SMS consent capture and the per-host
- * recipient cap. Everything here is written so the fan-out slots in at
- * `publishEvent` without reshaping anything.
+ * Writes go through the signed-in user's client, so row-level security and
+ * the guard triggers (migrations 027, 032, 033) decide what is allowed:
+ * who may host, which groups a member may target, that audiences stay in
+ * the church, that a youth gathering stays private, that a home is never a
+ * public pin, that a host cannot un-hide a reported gathering. The checks
+ * here exist to give a clear message first; the database is the authority,
+ * and its RAISE messages are written to be shown to people as-is.
  */
+
+const MAX_REPEAT_WEEKS = 12;
+const MAX_GUESTS = 10;
 
 function fail(error: string): ServiceResult<never> {
   return { success: false, error };
 }
 
-/** Can this person host? Anyone who's been through the connect platform,
- *  plus staff. Mirrors the SQL `ec_can_host_events()`. */
+function dbMessage(error: { message?: string; code?: string } | null, fallback: string): string {
+  if (!error?.message) return fallback;
+  if (error.code === '42501' || error.message.startsWith('new row violates row-level security')) {
+    // A guard trigger's message is already plain language; a bare RLS
+    // rejection is not.
+    return error.message.startsWith('new row violates') ? "You don't have permission to do that here." : error.message;
+  }
+  return error.message;
+}
+
+function trimOrNull(v: string | undefined | null): string | null {
+  const t = v?.trim();
+  return t ? t : null;
+}
+
+/** Can this person host? The database's ec_can_host_events() decides. */
 export async function canHostEvents(): Promise<boolean> {
   const session = await getSession();
   if (!session?.profile) return false;
-  if (session.profile.is_platform_admin) return true;
-  if (session.profile.role !== 'participant') return true;
-
-  const admin = await createServiceRoleClient();
-  const { data } = await admin
-    .from('participants')
-    .select('id, status')
-    .eq('profile_id', session.id)
-    .in('status', ['connected', 'completed'])
-    .maybeSingle();
-  return Boolean(data);
+  const supabase = await createServerSupabaseClient();
+  const { data } = await supabase.rpc('ec_can_host_events');
+  return data === true;
 }
 
-export async function createEvent(
-  input: CreateEventInput,
-): Promise<ServiceResult<{ id: string }>> {
+interface Times {
+  starts_at: string;
+  ends_at: string;
+}
+
+function resolveTimes(date: string, start: string, end: string, timezone: string): Times | null {
+  const s = zonedWallTimeToUtc(date, start, timezone);
+  let e = zonedWallTimeToUtc(date, end, timezone);
+  if (!s || !e) return null;
+  // 7pm-12:30am: an end at or before the start is the next morning.
+  if (e.getTime() <= s.getTime()) e = zonedWallTimeToUtc(addDaysToDateKey(date, 1), end, timezone);
+  if (!e || e.getTime() <= s.getTime()) return null;
+  return { starts_at: s.toISOString(), ends_at: e.toISOString() };
+}
+
+interface Prepared {
+  fields: Record<string, unknown>;
+  address: { address_line1: string | null; address_line2: string | null; postal_code: string | null } | null;
+  geocode: boolean;
+}
+
+/** Validates an EventInput and maps it to columns (minus times and ids). */
+function prepare(input: EventInput, isStaff: boolean): ServiceResult<Prepared> {
+  if (!input.event_type_id) return fail('Pick what kind of gathering this is.');
+  if (!input.title?.trim()) return fail('Give the gathering a name.');
+  if (input.title.trim().length > 140) return fail('Keep the name under 140 characters.');
+  if ((input.description?.length ?? 0) > 5000) return fail('The description is too long.');
+
+  const venue = input.venue_kind;
+  if (!['campus', 'public_place', 'home', 'online'].includes(venue)) return fail('Say where it is.');
+
+  const groupIds = input.group_ids ?? [];
+  const churchWide = input.visibility === 'private' && (input.audience_is_church_wide ?? false);
+  if (input.visibility === 'private' && !churchWide && groupIds.length === 0 && (input.invite_profile_ids ?? []).length === 0) {
+    // "No groups picked" never silently means "everyone" — the failure the
+    // binary visibility model exists to prevent.
+    return fail('Choose who this private gathering is for: a group you are in, or everyone at your church.');
+  }
+
+  if (venue === 'campus' && !input.campus_id) return fail('Pick which campus.');
+  if (venue === 'public_place' && !trimOrNull(input.location_name) && !trimOrNull(input.address_line1)) {
+    return fail('Add the place name or its address.');
+  }
+  if (venue === 'home' && !trimOrNull(input.address_line1)) return fail("Add the home's address. It is only shared as you choose below.");
+  if ((venue === 'home' || venue === 'public_place') && !trimOrNull(input.city)) return fail('Add the city.');
+
+  if (input.visibility === 'public' && venue === 'home' && !input.acknowledged_public_home) {
+    return fail('Confirm you want this home address public, or make the gathering private.');
+  }
+
+  // Address hold: never on a public gathering (public means public); always
+  // on a private home; the host's choice on a private public place.
+  const hold =
+    input.visibility === 'public' ? false : venue === 'home' ? true : Boolean(input.hide_address_until_rsvp);
+
+  const capacity = input.capacity == null || input.capacity === 0 ? null : Math.floor(input.capacity);
+  if (capacity !== null && (capacity < 1 || capacity > 10000)) return fail('Capacity has to be at least 1.');
+
+  void isStaff;
+  return {
+    success: true,
+    data: {
+      fields: {
+        event_type_id: input.event_type_id,
+        title: input.title.trim(),
+        description: trimOrNull(input.description),
+        campus_id: input.campus_id || null,
+        visibility: input.visibility,
+        audience_is_church_wide: churchWide,
+        invite_ring: input.invite_ring ?? 'members_only',
+        venue_kind: venue,
+        location_name: venue === 'campus' ? trimOrNull(input.location_name) : trimOrNull(input.location_name),
+        city: venue === 'campus' || venue === 'online' ? null : trimOrNull(input.city),
+        region: venue === 'campus' || venue === 'online' ? null : trimOrNull(input.region),
+        hide_address_until_rsvp: hold,
+        public_home_acknowledged_at:
+          input.visibility === 'public' && venue === 'home' ? new Date().toISOString() : null,
+        capacity,
+        rsvp_required: input.rsvp_required ?? false,
+      },
+      address:
+        venue === 'home' || venue === 'public_place'
+          ? {
+              address_line1: trimOrNull(input.address_line1),
+              address_line2: trimOrNull(input.address_line2),
+              postal_code: trimOrNull(input.postal_code),
+            }
+          : null,
+      // Homes are never sent to a geocoder (rethink §7.3).
+      geocode: venue === 'public_place',
+    },
+  };
+}
+
+async function geocodeFor(input: EventInput, prepared: Prepared) {
+  if (!prepared.geocode || !prepared.address) return null;
+  return geocodeAddress({
+    line1: prepared.address.address_line1,
+    city: input.city,
+    region: input.region,
+    postalCode: prepared.address.postal_code,
+  });
+}
+
+function isStaffProfile(session: Awaited<ReturnType<typeof requireAuth>>): boolean {
+  return Boolean(session.profile?.is_platform_admin) || (session.profile?.role ?? 'participant') !== 'participant';
+}
+
+export async function createEvent(input: EventInput): Promise<ServiceResult<{ id: string; count: number }>> {
   const session = await requireAuth();
   const churchId = session.profile?.church_id;
   if (!churchId) return fail('Your profile is not attached to a church.');
 
   if (!(await canHostEvents())) {
     return fail(
-      'Hosting is open to people who have been through the connect journey. ' +
-        'Reach out to your connector if you think this is a mistake.',
+      'Hosting opens up once you have met with your connector and done the short host orientation. ' +
+        'Ask your church if you think this is a mistake.',
     );
   }
 
-  if (!input.title?.trim()) return fail('Give the event a title.');
-  if (!input.starts_at || !input.ends_at) return fail('Set a start and end time.');
-  if (new Date(input.ends_at) <= new Date(input.starts_at)) {
-    return fail('The end time has to be after the start time.');
+  const church = await getChurchContext(churchId);
+  if (!church) return fail('Church not found.');
+
+  const prepared = prepare(input, isStaffProfile(session));
+  if (!prepared.success) return prepared;
+  const p = prepared.data;
+
+  if (input.visibility === 'public' && input.venue_kind === 'home' && !church.settings.allow_public_home_events) {
+    return fail('Your church keeps home gatherings private. Make this one private, or meet somewhere public.');
   }
 
-  const groupIds = input.group_ids ?? [];
-  const churchWide = input.audience_is_church_wide ?? false;
+  const weeks = Math.min(Math.max(Math.floor(input.repeat_weeks ?? 1), 1), MAX_REPEAT_WEEKS);
+  const seriesId = weeks > 1 ? randomUUID() : null;
+  const publish = input.publish ?? true;
+  const now = new Date().toISOString();
 
-  // A private event must say who it's for. We deliberately do NOT treat "no
-  // groups picked" as "everyone" — that silent widening is the exact failure
-  // the binary visibility model exists to prevent.
-  if (input.visibility === 'private' && !churchWide && groupIds.length === 0) {
-    if ((input.invite_profile_ids ?? []).length === 0) {
-      return fail(
-        'Choose who this private event is for — one or more groups, specific ' +
-          'people, or everyone at your church.',
-      );
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 0; i < weeks; i++) {
+    const times = resolveTimes(addDaysToDateKey(input.date, 7 * i), input.start_time, input.end_time, church.timezone);
+    if (!times) return fail('Check the date and times.');
+    if (i === 0 && new Date(times.ends_at).getTime() < Date.now() - 60_000) {
+      return fail('That time has already passed.');
     }
+    rows.push({
+      ...p.fields,
+      ...times,
+      church_id: churchId,
+      timezone: church.timezone,
+      series_id: seriesId,
+      series_index: seriesId ? i : null,
+      status: publish ? 'published' : 'draft',
+      published_at: publish ? now : null,
+      host_profile_id: session.id,
+      created_by_channel: 'web',
+    });
   }
 
   const supabase = await createServerSupabaseClient();
-  const publish = input.publish ?? true;
+  const { data, error } = await supabase.from('events').insert(rows).select('id, series_index');
+  if (error || !data || data.length === 0) return fail(dbMessage(error, 'Could not create the gathering.'));
 
-  const { data, error } = await supabase
-    .from('events')
-    .insert({
-      church_id: churchId,
-      campus_id: input.campus_id ?? session.profile?.campus_id ?? null,
-      event_type_id: input.event_type_id,
-      title: input.title.trim(),
-      description: input.description?.trim() || null,
-      starts_at: input.starts_at,
-      ends_at: input.ends_at,
-      timezone: input.timezone ?? 'America/Chicago',
-      all_day: input.all_day ?? false,
-      visibility: input.visibility,
-      audience_is_church_wide: churchWide,
-      invite_ring: input.invite_ring ?? 'members_only',
-      status: publish ? 'published' : 'draft',
-      published_at: publish ? new Date().toISOString() : null,
-      host_profile_id: session.id,
-      location_name: input.location_name?.trim() || null,
-      address_line1: input.address_line1?.trim() || null,
-      address_line2: input.address_line2?.trim() || null,
-      city: input.city?.trim() || null,
-      region: input.region?.trim() || null,
-      postal_code: input.postal_code?.trim() || null,
-      is_private_residence: input.is_private_residence ?? false,
-      // Only meaningful on a private event — a public event's address is
-      // public by definition.
-      hide_address_until_rsvp:
-        input.visibility === 'private' && (input.hide_address_until_rsvp ?? false),
-      scheduling_location_id: input.scheduling_location_id ?? null,
-      capacity: input.capacity ?? null,
-      rsvp_required: input.rsvp_required ?? false,
-      rsvp_deadline: input.rsvp_deadline ?? null,
-      image_url: input.image_url ?? null,
-      created_by_channel: 'web',
-    })
-    .select('id')
-    .single();
+  const ids = (data as Array<{ id: string; series_index: number | null }>)
+    .sort((a, b) => (a.series_index ?? 0) - (b.series_index ?? 0))
+    .map((r) => r.id);
 
-  if (error || !data) {
-    return fail(error?.message ?? 'Could not create the event.');
-  }
+  const cleanup = async (message: string): Promise<ServiceResult<never>> => {
+    // Leave nothing half-made: an event without its audience would be
+    // invisible to the people it was for. Only staff can delete, so the
+    // service role removes what this request just created.
+    const admin = await createServiceRoleClient();
+    await admin.from('events').delete().in('id', ids);
+    return fail(message);
+  };
 
-  const eventId = (data as { id: string }).id;
-  const admin = await createServiceRoleClient();
-
-  if (groupIds.length > 0) {
-    await admin.from('event_audiences').insert(
-      groupIds.map((group_id) => ({ event_id: eventId, group_id })),
-    );
-  }
-
-  if ((input.invite_profile_ids ?? []).length > 0) {
-    await admin.from('event_invites').insert(
-      input.invite_profile_ids!.map((profile_id) => ({
-        event_id: eventId,
-        profile_id,
-        invited_by_profile_id: session.id,
+  if (p.address) {
+    const pin = await geocodeFor(input, p);
+    const { error: addrErr } = await supabase.from('event_addresses').insert(
+      ids.map((id) => ({
+        event_id: id,
+        ...p.address,
+        lat: pin?.lat ?? null,
+        lng: pin?.lng ?? null,
+        geocoded_at: pin ? now : null,
       })),
     );
+    if (addrErr) return cleanup(dbMessage(addrErr, 'Could not save the address.'));
   }
 
-  // "Notify others who could be invited": pull in each targeted group's parent
-  // ring. This writes the ring into event_audiences rather than treating it as
-  // a notify-only list, so the people we're about to invite can actually open
-  // the link — see lib/events/audience.ts.
-  if ((input.invite_ring ?? 'members_only') === 'members_plus_eligible') {
-    await materializeEligibilityRing(admin, eventId);
+  const groupIds = p.fields.audience_is_church_wide || input.visibility === 'public' ? [] : input.group_ids ?? [];
+  if (groupIds.length > 0) {
+    const { error: audErr } = await supabase
+      .from('event_audiences')
+      .insert(ids.flatMap((event_id) => groupIds.map((group_id) => ({ event_id, group_id }))));
+    if (audErr) return cleanup(dbMessage(audErr, 'Could not set who this is for.'));
+  }
+
+  const invitees = input.invite_profile_ids ?? [];
+  if (invitees.length > 0) {
+    const { error: invErr } = await supabase.from('event_invites').insert(
+      ids.flatMap((event_id) =>
+        invitees.map((profile_id) => ({ event_id, profile_id, invited_by_profile_id: session.id })),
+      ),
+    );
+    if (invErr) return cleanup(dbMessage(invErr, 'Could not invite those people.'));
+  }
+
+  if ((input.invite_ring ?? 'members_only') === 'members_plus_eligible' && groupIds.length > 0) {
+    // The ring is written into event_audiences, so the people we may notify
+    // can actually open the link.
+    const admin = await createServiceRoleClient();
+    for (const id of ids) await materializeEligibilityRing(admin, id);
   }
 
   await recordAudit({
     action: publish ? 'event.published' : 'event.drafted',
     entity_type: 'event',
-    entity_id: eventId,
+    entity_id: ids[0],
     metadata: {
       visibility: input.visibility,
+      venue_kind: input.venue_kind,
       invite_ring: input.invite_ring ?? 'members_only',
       group_count: groupIds.length,
-      church_wide: churchWide,
-      is_private_residence: input.is_private_residence ?? false,
+      church_wide: p.fields.audience_is_church_wide,
+      weeks,
+      series_id: seriesId,
     },
   });
 
   revalidatePath('/');
-  return { success: true, data: { id: eventId } };
+  return { success: true, data: { id: ids[0], count: ids.length } };
+}
+
+/**
+ * Edit a gathering. `scope = 'future'` applies the change to this and every
+ * later gathering in its weekly series, keeping each one's own date.
+ */
+export async function updateEvent(
+  eventId: string,
+  input: EventInput,
+  scope: 'one' | 'future' = 'one',
+): Promise<ServiceResult<{ id: string; count: number }>> {
+  const session = await requireAuth();
+  const supabase = await createServerSupabaseClient();
+
+  const { data: current } = await supabase.from('events').select('*').eq('id', eventId).maybeSingle();
+  const existing = current as EventRow | null;
+  if (!existing) return fail('Gathering not found.');
+
+  const church = await getChurchContext(existing.church_id);
+  if (!church) return fail('Church not found.');
+
+  const prepared = prepare(input, isStaffProfile(session));
+  if (!prepared.success) return prepared;
+  const p = prepared.data;
+
+  if (
+    input.visibility === 'public' && input.venue_kind === 'home' && !church.settings.allow_public_home_events
+  ) {
+    return fail('Your church keeps home gatherings private.');
+  }
+  // Keep the original acknowledgement time when it was already public.
+  if (existing.public_home_acknowledged_at && p.fields.public_home_acknowledged_at) {
+    p.fields.public_home_acknowledged_at = existing.public_home_acknowledged_at;
+  }
+
+  let targets: EventRow[] = [existing];
+  if (scope === 'future' && existing.series_id) {
+    const { data: series } = await supabase
+      .from('events')
+      .select('*')
+      .eq('series_id', existing.series_id)
+      .gte('starts_at', existing.starts_at)
+      .in('status', ['published', 'draft']);
+    targets = ((series ?? []) as EventRow[]).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    if (!targets.some((t) => t.id === existing.id)) targets.unshift(existing);
+  }
+
+  for (const t of targets) {
+    // The edited gathering takes the new date; later ones keep their own.
+    const date =
+      t.id === existing.id
+        ? input.date
+        : new Intl.DateTimeFormat('en-CA', { timeZone: church.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t.starts_at));
+    const times = resolveTimes(date, input.start_time, input.end_time, church.timezone);
+    if (!times) return fail('Check the date and times.');
+
+    const { data: saved, error } = await supabase
+      .from('events')
+      .update({ ...p.fields, ...times, timezone: church.timezone })
+      .eq('id', t.id)
+      .select('id');
+    if (error) return fail(dbMessage(error, 'Could not save the change.'));
+    // RLS hides rows you may not edit: no error, nothing changed.
+    if (!saved || saved.length === 0) return fail('Only the host or an admin can edit this gathering.');
+  }
+
+  const ids = targets.map((t) => t.id);
+
+  if (p.address) {
+    const pin = await geocodeFor(input, p);
+    const { error } = await supabase.from('event_addresses').upsert(
+      ids.map((id) => ({
+        event_id: id,
+        ...p.address,
+        lat: pin?.lat ?? null,
+        lng: pin?.lng ?? null,
+        geocoded_at: pin ? new Date().toISOString() : null,
+      })),
+      { onConflict: 'event_id' },
+    );
+    if (error) return fail(dbMessage(error, 'Could not save the address.'));
+  } else {
+    await supabase.from('event_addresses').delete().in('event_id', ids);
+  }
+
+  // Re-sync the audience: replace targeted groups, then rebuild the ring.
+  const groupIds = p.fields.audience_is_church_wide || input.visibility === 'public' ? [] : input.group_ids ?? [];
+  const { error: delErr } = await supabase.from('event_audiences').delete().in('event_id', ids);
+  if (delErr) return fail(dbMessage(delErr, 'Could not update who this is for.'));
+  if (groupIds.length > 0) {
+    const { error } = await supabase
+      .from('event_audiences')
+      .insert(ids.flatMap((event_id) => groupIds.map((group_id) => ({ event_id, group_id }))));
+    if (error) return fail(dbMessage(error, 'Could not update who this is for.'));
+  }
+  if ((input.invite_ring ?? 'members_only') === 'members_plus_eligible' && groupIds.length > 0) {
+    const admin = await createServiceRoleClient();
+    for (const id of ids) await materializeEligibilityRing(admin, id);
+  }
+
+  await recordAudit({
+    action: 'event.updated',
+    entity_type: 'event',
+    entity_id: eventId,
+    metadata: { scope, count: ids.length, visibility: input.visibility, venue_kind: input.venue_kind },
+  });
+
+  revalidatePath('/');
+  for (const id of ids) revalidatePath(`/hub/e/${id}`);
+  return { success: true, data: { id: eventId, count: ids.length } };
+}
+
+/** Publish a draft (and the rest of its series, when asked). */
+export async function publishEvent(eventId: string, scope: 'one' | 'future' = 'one'): Promise<ServiceResult<null>> {
+  await requireAuth();
+  const supabase = await createServerSupabaseClient();
+  const { data: current } = await supabase.from('events').select('id, series_id, starts_at, status').eq('id', eventId).maybeSingle();
+  const e = current as Pick<EventRow, 'id' | 'series_id' | 'starts_at' | 'status'> | null;
+  if (!e) return fail('Gathering not found.');
+
+  let query = supabase
+    .from('events')
+    .update({ status: 'published', published_at: new Date().toISOString() })
+    .eq('status', 'draft');
+  query = scope === 'future' && e.series_id
+    ? query.eq('series_id', e.series_id).gte('starts_at', e.starts_at)
+    : query.eq('id', e.id);
+  const { data: published, error } = await query.select('id');
+  if (error) return fail(dbMessage(error, 'Could not publish it.'));
+  if (!published || published.length === 0) return fail('Only the host can publish this draft.');
+
+  await recordAudit({ action: 'event.published', entity_type: 'event', entity_id: eventId, metadata: { from: 'draft', scope } });
+  revalidatePath('/');
+  revalidatePath(`/hub/e/${eventId}`);
+  return { success: true, data: null };
 }
 
 export async function rsvpToEvent(
@@ -176,25 +440,48 @@ export async function rsvpToEvent(
   guestCount = 0,
 ): Promise<ServiceResult<null>> {
   const session = await requireAuth();
-  const supabase = await createServerSupabaseClient();
+  if (!['going', 'maybe', 'not_going'].includes(status)) return fail('Pick going, maybe, or can’t make it.');
+  const guests = status === 'going' ? Math.min(Math.max(Math.floor(guestCount), 0), MAX_GUESTS) : 0;
 
-  // RLS on event_rsvps checks `ec_can_see_event(event_id)` in WITH CHECK, so an
-  // RSVP to an event you can't see is rejected by the database, not by a check
-  // here that could drift.
+  const supabase = await createServerSupabaseClient();
+  // RLS checks ec_can_see_event(event_id) in WITH CHECK, so an RSVP to a
+  // gathering you can't see is rejected by the database.
   const { error } = await supabase.from('event_rsvps').upsert(
     {
       event_id: eventId,
       profile_id: session.id,
       status,
-      guest_count: Math.max(0, guestCount),
+      guest_count: guests,
       responded_at: new Date().toISOString(),
     },
     { onConflict: 'event_id,profile_id' },
   );
-
-  if (error) return fail(error.message);
+  if (error) return fail(dbMessage(error, 'Could not save your RSVP.'));
 
   revalidatePath('/');
+  revalidatePath(`/hub/e/${eventId}`);
+  return { success: true, data: null };
+}
+
+/** Host, cohost or staff mark who came. */
+export async function setAttendance(
+  eventId: string,
+  profileId: string,
+  attended: boolean,
+): Promise<ServiceResult<null>> {
+  const session = await requireAuth();
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('event_rsvps')
+    .update({
+      attended_at: attended ? new Date().toISOString() : null,
+      checked_in_by_profile_id: attended ? session.id : null,
+    })
+    .eq('event_id', eventId)
+    .eq('profile_id', profileId)
+    .select('id');
+  if (error) return fail(dbMessage(error, 'Could not record attendance.'));
+  if (!data || data.length === 0) return fail('Only the host can check people in.');
   revalidatePath(`/hub/e/${eventId}`);
   return { success: true, data: null };
 }
@@ -202,95 +489,150 @@ export async function rsvpToEvent(
 export async function cancelEvent(
   eventId: string,
   reason: string,
-): Promise<ServiceResult<null>> {
+  scope: 'one' | 'future' = 'one',
+): Promise<ServiceResult<{ notified: number }>> {
   const session = await requireAuth();
   const supabase = await createServerSupabaseClient();
 
-  // Cancel rather than delete: the event stays visible to its audience with a
-  // banner, so nobody shows up to a cancelled home group.
-  const { error } = await supabase
+  const { data: current } = await supabase.from('events').select('id, series_id, starts_at').eq('id', eventId).maybeSingle();
+  const e = current as Pick<EventRow, 'id' | 'series_id' | 'starts_at'> | null;
+  if (!e) return fail('Gathering not found.');
+
+  const cleanReason = reason?.trim().slice(0, 300) || null;
+  let query = supabase
     .from('events')
     .update({
       status: 'cancelled',
       cancelled_at: new Date().toISOString(),
-      cancellation_reason: reason?.trim() || null,
+      cancellation_reason: cleanReason,
       cancelled_by_profile_id: session.id,
     })
-    .eq('id', eventId);
+    .in('status', ['published', 'draft']);
+  query = scope === 'future' && e.series_id
+    ? query.eq('series_id', e.series_id).gte('starts_at', e.starts_at)
+    : query.eq('id', e.id);
 
-  if (error) return fail(error.message);
+  // Cancel rather than delete: it stays visible to its audience with a
+  // banner, so nobody shows up to a home group that quietly vanished.
+  const { data: cancelled, error } = await query.select('id');
+  if (error) return fail(dbMessage(error, 'Could not cancel it.'));
+  if (!cancelled || cancelled.length === 0) return fail('Only the host or an admin can cancel this gathering.');
+
+  const admin = await createServiceRoleClient();
+  let notified = 0;
+  for (const row of (cancelled ?? []) as Array<{ id: string }>) {
+    try {
+      notified += await enqueueEventCancelled(admin, { eventId: row.id, reason: cleanReason, cancelledBy: session.id });
+    } catch (err) {
+      console.error('[events] cancel notice failed', err);
+    }
+  }
 
   await recordAudit({
     action: 'event.cancelled',
     entity_type: 'event',
     entity_id: eventId,
-    metadata: { reason: reason?.trim() || null },
+    metadata: { reason: cleanReason, scope, count: (cancelled ?? []).length, notified },
   });
 
   revalidatePath('/');
   revalidatePath(`/hub/e/${eventId}`);
-  return { success: true, data: null };
+  return { success: true, data: { notified } };
 }
 
 /**
- * Report an event.
+ * Report a gathering.
  *
- * Trust-then-verify: the first report hides the event and alerts admins. What
- * keeps that safe from griefing is *who can report* — the RLS INSERT policy is
- * `ec_can_see_event(event_id)`, the same rule as the read path. So a private
- * event can only be reported by its targeted audience (curated, named,
- * auditable people) and anonymous visitors can't report at all.
- *
- * The admin SMS is enqueued in phase 2 with the rest of the event
- * notifications; for now the event is pulled and lands in /hub/review.
+ * Only people who can see a gathering can report it (the RLS INSERT policy
+ * is ec_can_see_event). The first report takes it off the hub when the
+ * reporter has standing in the church that owns it: connected there, or
+ * staff there. Anyone else's report is recorded and sent to that church's
+ * admins without pulling the gathering, so a fresh account cannot hide a
+ * church's week (rethink §7.5).
  */
 export async function reportEvent(
   eventId: string,
   reason: ReportReason,
   note?: string,
-): Promise<ServiceResult<null>> {
+): Promise<ServiceResult<{ hidden: boolean }>> {
   const session = await requireAuth();
   const supabase = await createServerSupabaseClient();
 
-  const { error: reportError } = await supabase.from('event_reports').insert({
-    event_id: eventId,
-    reporter_profile_id: session.id,
-    reason,
-    note: note?.trim() || null,
-  });
+  const { data: report, error: reportError } = await supabase
+    .from('event_reports')
+    .insert({
+      event_id: eventId,
+      reporter_profile_id: session.id,
+      reason,
+      note: note?.trim().slice(0, 1000) || null,
+    })
+    .select('id')
+    .single();
 
-  if (reportError) {
-    // UNIQUE (event_id, reporter_profile_id) — one report per person.
-    if (reportError.code === '23505') {
-      return fail('You have already reported this event. An admin is reviewing it.');
+  if (reportError || !report) {
+    if (reportError?.code === '23505') {
+      return fail('You have already reported this. An admin is looking at it.');
     }
-    return fail(reportError.message);
+    return fail(dbMessage(reportError, 'Could not send the report.'));
   }
 
-  // Pull it from the hub immediately. Service-role because an ordinary member
-  // has no UPDATE rights on someone else's event — the report is their
-  // authority, not a general edit permission.
   const admin = await createServiceRoleClient();
-  await admin
-    .from('events')
-    .update({
-      status: 'hidden',
-      hidden_at: new Date().toISOString(),
-      hidden_reason: `Reported: ${reason}`,
-    })
-    .eq('id', eventId)
-    .eq('status', 'published');
+  const { data: ev } = await admin.from('events').select('id, church_id, status').eq('id', eventId).maybeSingle();
+  const event = ev as { id: string; church_id: string; status: string } | null;
+  if (!event) return fail('Gathering not found.');
+
+  const profile = session.profile;
+  const staffThere =
+    Boolean(profile?.is_platform_admin) ||
+    (profile?.church_id === event.church_id && (profile?.role ?? 'participant') !== 'participant');
+  let standing = staffThere;
+  if (!standing && profile?.church_id === event.church_id) {
+    const { data: part } = await admin
+      .from('participants')
+      .select('id')
+      .eq('profile_id', session.id)
+      .eq('church_id', event.church_id)
+      .in('status', ['connected', 'completed'])
+      .limit(1);
+    standing = (part ?? []).length > 0;
+  }
+
+  let hidden = false;
+  if (standing && event.status === 'published') {
+    const { data: updated } = await admin
+      .from('events')
+      .update({ status: 'hidden', hidden_at: new Date().toISOString(), hidden_reason: `Reported: ${reason}` })
+      .eq('id', eventId)
+      .eq('status', 'published')
+      .select('id');
+    hidden = (updated ?? []).length > 0;
+  }
+
+  try {
+    const reporterName =
+      [profile?.first_name, profile?.last_name].filter(Boolean).join(' ').trim() || 'A member';
+    await enqueueEventReported(admin, {
+      eventId,
+      reporterName: profile?.church_id === event.church_id ? reporterName : `${reporterName} (from another church)`,
+      reason,
+      hidden,
+      reportId: (report as { id: string }).id,
+    });
+  } catch (err) {
+    console.error('[events] report alert failed', err);
+  }
 
   await recordAudit({
     action: 'event.reported',
     entity_type: 'event',
     entity_id: eventId,
-    metadata: { reason },
+    metadata: { reason, hidden, reporter_has_standing: standing },
   });
 
   revalidatePath('/');
   revalidatePath(`/hub/e/${eventId}`);
-  return { success: true, data: null };
+  revalidatePath('/hub/review');
+  return { success: true, data: { hidden } };
 }
 
 /** Admin resolution of a report from /hub/review. */
@@ -301,28 +643,38 @@ export async function resolveEventReport(
   const session = await requireCampusAdmin();
   const admin = await createServiceRoleClient();
 
-  const nextStatus: Partial<EventRow> =
-    resolution === 'restored'
-      ? { status: 'published', hidden_at: null, hidden_reason: null }
-      : resolution === 'cancelled'
-        ? {
-            status: 'cancelled',
-            cancelled_at: new Date().toISOString(),
-            cancelled_by_profile_id: session.id,
-          }
-        : {};
+  const { data: ev } = await admin.from('events').select('id, church_id, host_profile_id, status').eq('id', eventId).maybeSingle();
+  const event = ev as { id: string; church_id: string; host_profile_id: string | null; status: string } | null;
+  if (!event) return fail('Gathering not found.');
+  // Each church moderates its own gatherings.
+  if (!session.profile?.is_platform_admin && event.church_id !== session.profile?.church_id) {
+    return fail('That gathering belongs to another church.');
+  }
 
-  if (Object.keys(nextStatus).length > 0) {
-    await admin.from('events').update(nextStatus).eq('id', eventId);
+  const now = new Date().toISOString();
+  if (resolution === 'restored') {
+    await admin.from('events').update({ status: 'published', hidden_at: null, hidden_reason: null }).eq('id', eventId);
+  } else if (resolution === 'cancelled' || resolution === 'host_blocked') {
+    await admin
+      .from('events')
+      .update({ status: 'cancelled', cancelled_at: now, cancelled_by_profile_id: session.id, cancellation_reason: 'Removed by the church.' })
+      .eq('id', eventId);
+  } else if (event.status === 'hidden') {
+    // "No action": the report did not hold up, so the gathering goes back up.
+    await admin.from('events').update({ status: 'published', hidden_at: null, hidden_reason: null }).eq('id', eventId);
+  }
+
+  if (resolution === 'host_blocked' && event.host_profile_id) {
+    await admin
+      .from('profiles')
+      .update({ host_blocked_at: now, host_blocked_by: session.id })
+      .eq('id', event.host_profile_id)
+      .eq('church_id', event.church_id);
   }
 
   await admin
     .from('event_reports')
-    .update({
-      resolved_at: new Date().toISOString(),
-      resolved_by_profile_id: session.id,
-      resolution,
-    })
+    .update({ resolved_at: now, resolved_by_profile_id: session.id, resolution })
     .eq('event_id', eventId)
     .is('resolved_at', null);
 
@@ -330,39 +682,64 @@ export async function resolveEventReport(
     action: 'event.report_resolved',
     entity_type: 'event',
     entity_id: eventId,
-    metadata: { resolution },
+    metadata: { resolution, host_blocked: resolution === 'host_blocked' },
   });
 
   revalidatePath('/');
   revalidatePath('/hub/review');
+  revalidatePath(`/hub/e/${eventId}`);
   return { success: true, data: null };
 }
 
-/** Pin/unpin. Admin-only, and deliberately does NOT change visibility —
- *  a pinned private event is still private. */
-export async function setEventPinned(
-  eventId: string,
-  pinned: boolean,
-): Promise<ServiceResult<null>> {
+/** Pin/unpin. Admin-only (the database enforces it), and pinning never
+ *  changes visibility — a pinned private gathering is still private. */
+export async function setEventPinned(eventId: string, pinned: boolean): Promise<ServiceResult<null>> {
   const session = await requireCampusAdmin();
   const supabase = await createServerSupabaseClient();
-
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('events')
-    .update({
-      pinned_at: pinned ? new Date().toISOString() : null,
-      pinned_by_profile_id: pinned ? session.id : null,
-    })
-    .eq('id', eventId);
+    .update({ pinned_at: pinned ? new Date().toISOString() : null, pinned_by_profile_id: pinned ? session.id : null })
+    .eq('id', eventId)
+    .select('id');
+  if (error) return fail(dbMessage(error, 'Could not pin it.'));
+  if (!data || data.length === 0) return fail('Only an admin of this church can pin it.');
 
-  if (error) return fail(error.message);
-
-  await recordAudit({
-    action: pinned ? 'event.pinned' : 'event.unpinned',
-    entity_type: 'event',
-    entity_id: eventId,
-  });
-
+  await recordAudit({ action: pinned ? 'event.pinned' : 'event.unpinned', entity_type: 'event', entity_id: eventId });
   revalidatePath('/');
+  revalidatePath(`/hub/e/${eventId}`);
+  return { success: true, data: null };
+}
+
+/** In-app relay to the host. Five messages a day per person. */
+export async function messageHost(eventId: string, message: string): Promise<ServiceResult<null>> {
+  const session = await requireAuth();
+  const text = message?.trim();
+  if (!text) return fail('Write a message first.');
+  if (text.length > 1500) return fail('Keep it under 1,500 characters.');
+
+  // Only people who can see the gathering can write about it.
+  const supabase = await createServerSupabaseClient();
+  const { data: visible } = await supabase.from('events').select('id').eq('id', eventId).maybeSingle();
+  if (!visible) return fail('Gathering not found.');
+
+  const admin = await createServiceRoleClient();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count } = await admin
+    .from('notification_outbox')
+    .select('id', { count: 'exact', head: true })
+    .eq('template_key', 'event_message_to_host')
+    .contains('metadata', { sender_profile_id: session.id })
+    .gte('created_at', since);
+  if ((count ?? 0) >= 5) return fail('You have sent a lot of messages today. Try again tomorrow.');
+
+  const name = [session.profile?.first_name, session.profile?.last_name].filter(Boolean).join(' ').trim() || 'A member';
+  const ok = await enqueueMessageToHost(admin, {
+    eventId,
+    sender: { id: session.id, name, email: session.email ?? session.profile?.email ?? null },
+    message: text,
+  });
+  if (!ok) return fail('The host can’t receive messages right now.');
+
+  await recordAudit({ action: 'event.message_host', entity_type: 'event', entity_id: eventId });
   return { success: true, data: null };
 }

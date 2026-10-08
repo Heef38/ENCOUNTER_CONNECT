@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CalendarDays, List } from 'lucide-react';
+import { CalendarDays, List, Map as MapIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EventType } from '@/lib/events/types';
 
@@ -9,7 +9,7 @@ import type { EventType } from '@/lib/events/types';
  * hub stays a server component and filters survive refresh and sharing.
  */
 
-export type HubView = 'calendar' | 'list';
+export type HubView = 'calendar' | 'list' | 'map';
 
 interface HubFiltersProps {
   view: HubView;
@@ -21,6 +21,7 @@ interface HubFiltersProps {
     group?: string;
     campus?: string;
     month?: string;
+    church?: string;
   };
 }
 
@@ -35,6 +36,7 @@ function withParams(
     group: active.group,
     campus: active.campus,
     month: active.month,
+    church: active.church,
     ...overrides,
   };
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== '');
@@ -80,6 +82,7 @@ export function HubFilters({
       <div className="flex items-center gap-1 rounded-md border border-border bg-surface p-1 w-fit">
         {(
           [
+            ['map', 'Map', MapIcon],
             ['calendar', 'Calendar', CalendarDays],
             ['list', 'List', List],
           ] as const
@@ -98,7 +101,6 @@ export function HubFilters({
             {label}
           </Link>
         ))}
-        {/* Map view lands in phase 4 — the schema already carries lat/lng. */}
       </div>
 
       {/* Type filter */}

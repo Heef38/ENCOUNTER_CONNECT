@@ -59,6 +59,13 @@ CREATE TABLE groups (
   -- separately, per event, in 027.
   is_private        BOOLEAN NOT NULL DEFAULT FALSE,
 
+  -- A roster of minors (students, kids). Gatherings that target a youth
+  -- group must have a staff host, be private, and hold their address until
+  -- RSVP (enforced in migration 032). Youth groups never appear in the
+  -- member directory or the list of groups a member can target. This flag
+  -- describes the roster, never a person: no date of birth is stored.
+  is_youth          BOOLEAN NOT NULL DEFAULT FALSE,
+
   leader_profile_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
 
   -- Optional association with a serve_teams row (006). Kept as a link rather
@@ -146,12 +153,26 @@ AS $$
   );
 $$;
 
+-- Which church a group / a person belongs to, regardless of the caller's
+-- RLS. Used to keep rosters inside one church.
+CREATE OR REPLACE FUNCTION ec_group_church_id(gid UUID)
+RETURNS UUID LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT church_id FROM groups WHERE id = gid;
+$$;
+
+CREATE OR REPLACE FUNCTION ec_profile_church_id(pid UUID)
+RETURNS UUID LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT church_id FROM profiles WHERE id = pid;
+$$;
+
 -- ── RLS: groups ──────────────────────────────────────────────
 
 ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
 
 -- Read: same-church staff see everything; any same-church member sees
--- non-private groups (the directory) plus any private group they belong to.
+-- non-private, non-youth groups (the directory) plus any group they belong to.
 CREATE POLICY "groups_read"
   ON groups FOR SELECT TO authenticated
   USING (
@@ -160,7 +181,7 @@ CREATE POLICY "groups_read"
       church_id = ec_current_church_id()
       AND (
         ec_has_role('connector')          -- connector, campus_admin, church_admin
-        OR is_private = FALSE
+        OR (is_private = FALSE AND is_youth = FALSE)
         OR ec_is_group_member(id)
       )
     )
@@ -198,27 +219,87 @@ CREATE POLICY "group_members_read"
   );
 
 -- Write: campus_admin+ in the group's church, or the group's own leader.
+-- Whoever adds the row, the person added must belong to the group's church:
+-- a leader cannot pull someone from another church into their roster.
 CREATE POLICY "group_members_write"
   ON group_members FOR ALL TO authenticated
   USING (
     ec_is_platform_admin()
     OR ec_is_group_leader(group_id)
-    OR EXISTS (
-      SELECT 1 FROM groups g
-      WHERE g.id = group_members.group_id
-        AND g.church_id = ec_current_church_id()
-        AND ec_has_role('campus_admin')
+    OR (
+      ec_group_church_id(group_id) = ec_current_church_id()
+      AND ec_has_role('campus_admin')
     )
   )
   WITH CHECK (
     ec_is_platform_admin()
-    OR ec_is_group_leader(group_id)
-    OR EXISTS (
-      SELECT 1 FROM groups g
-      WHERE g.id = group_members.group_id
-        AND g.church_id = ec_current_church_id()
-        AND ec_has_role('campus_admin')
+    OR (
+      ec_profile_church_id(profile_id) = ec_group_church_id(group_id)
+      AND (
+        ec_is_group_leader(group_id)
+        OR (
+          ec_group_church_id(group_id) = ec_current_church_id()
+          AND ec_has_role('campus_admin')
+        )
+      )
     )
   );
+
+-- ── Roster with names ────────────────────────────────────────
+-- profiles RLS hides other people's rows from ordinary members, so a
+-- member-readable roster needs a narrow, explicit projection. Members of
+-- the group see first name + last initial; leaders, staff of the group's
+-- church, and platform admins see full names. Nobody else gets rows.
+
+CREATE OR REPLACE FUNCTION ec_group_roster(gid UUID)
+RETURNS TABLE (
+  profile_id  UUID,
+  first_name  TEXT,
+  last_name   TEXT,
+  role        ec_group_member_role,
+  joined_at   TIMESTAMPTZ
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  g_church UUID := ec_group_church_id(gid);
+  full_names BOOLEAN;
+BEGIN
+  IF g_church IS NULL OR auth.uid() IS NULL THEN
+    RETURN;
+  END IF;
+
+  full_names := ec_is_platform_admin()
+    OR ec_is_group_leader(gid)
+    OR (g_church = ec_current_church_id() AND ec_has_role('connector'));
+
+  IF NOT (full_names OR ec_is_group_member(gid)) THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+    SELECT gm.profile_id,
+           p.first_name,
+           CASE WHEN full_names THEN p.last_name
+                ELSE NULLIF(LEFT(p.last_name, 1), '') END,
+           gm.role,
+           gm.joined_at
+    FROM group_members gm
+    JOIN profiles p ON p.id = gm.profile_id
+    WHERE gm.group_id = gid
+    ORDER BY gm.role DESC, p.first_name, p.last_name;
+END;
+$$;
+
+-- ── API grants ───────────────────────────────────────────────
+-- New tables are not exposed to the Data API without explicit grants
+-- (Supabase default from 2026-10-30). anon gets nothing: every signed-out
+-- page reads through the service role.
+GRANT SELECT, INSERT, UPDATE, DELETE ON groups, group_members TO authenticated;
+GRANT ALL ON groups, group_members TO service_role;
+GRANT EXECUTE ON FUNCTION
+  ec_is_group_member(UUID), ec_my_group_ids(), ec_is_group_leader(UUID),
+  ec_group_church_id(UUID), ec_profile_church_id(UUID), ec_group_roster(UUID)
+  TO authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';

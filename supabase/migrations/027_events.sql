@@ -19,6 +19,20 @@
 -- path (as the events RLS SELECT policy) and the report gate. Two
 -- implementations of this rule is exactly how the men end up seeing
 -- girls night, so there is only ever one.
+--
+-- Revised in place on 2026-10-08, before its first application (see
+-- docs/rethink-2026-10.md §4.2):
+--   * The street address and exact coordinates live in event_addresses,
+--     behind their own policy (ec_can_see_event_address). Before, RLS
+--     handed every audience member the raw columns, so "address after
+--     RSVP" was enforced only in TypeScript.
+--   * venue_kind (campus | public_place | home | online) replaces the
+--     host-ticked residence checkbox. is_private_residence is derived.
+--   * public_lat / public_lng are the only coordinates a map may read.
+--   * series_id for "repeats weekly", attended_at for check-in.
+--   * Deleting a host or reporter no longer deletes the event or report.
+--   * timezone has no Texas default; the app writes the church's.
+--   * Generic seeded event types; explicit API grants.
 -- ============================================================
 
 -- ── Enums ────────────────────────────────────────────────────
@@ -72,10 +86,14 @@ CREATE TABLE event_types (
   icon                TEXT,
 
   default_visibility  ec_event_visibility NOT NULL DEFAULT 'private',
-  -- Marks the type as normally hosted in someone's home. Drives the
-  -- default visibility above and the "you are about to publish a home
-  -- address to the open internet" confirmation in the create form.
-  default_is_private_residence BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Where this kind of gathering usually happens. 'home' drives private
+  -- defaults and the address gate; see events.venue_kind.
+  default_venue_kind  TEXT NOT NULL DEFAULT 'campus'
+    CHECK (default_venue_kind IN ('campus', 'public_place', 'home', 'online')),
+  -- Coarse purpose, used to match journey steps to real gatherings
+  -- ("attend a class", "come to a prayer night") in a later phase.
+  category            TEXT NOT NULL DEFAULT 'gathering'
+    CHECK (category IN ('gathering', 'prayer', 'study', 'serve', 'youth', 'outreach', 'other')),
 
   is_active           BOOLEAN NOT NULL DEFAULT TRUE,
   order_index         INTEGER NOT NULL DEFAULT 0,
@@ -90,19 +108,37 @@ CREATE TRIGGER event_types_updated_at
 
 CREATE INDEX idx_event_types_church ON event_types(church_id);
 
--- Seed the four types the church asked for, for every existing church.
--- Home groups default to private + private-residence; the gathered-at-church
--- types default to public.
+-- Seeded per church by a function so new churches get the same starter set
+-- (migration 032 calls it from an AFTER INSERT trigger on churches).
+-- Generic names on purpose: these appear in every tenant's create form.
+CREATE OR REPLACE FUNCTION ec_seed_event_types(cid UUID)
+RETURNS VOID LANGUAGE sql SECURITY DEFINER SET search_path = public
+AS $$
+  INSERT INTO event_types
+    (church_id, name, slug, default_visibility, default_venue_kind, category, order_index, color)
+  SELECT cid, t.name, t.slug, t.vis, t.venue, t.cat, t.ord, t.color
+  FROM (VALUES
+    ('Home Group',      'home-group',      'private'::ec_event_visibility, 'home',         'gathering', 0, '#0f766e'),
+    ('Prayer Night',    'prayer-night',    'public'::ec_event_visibility,  'campus',       'prayer',    1, '#7c3aed'),
+    ('Newcomers Lunch', 'newcomers-lunch', 'public'::ec_event_visibility,  'campus',       'gathering', 2, '#d97706'),
+    ('Class',           'class',           'public'::ec_event_visibility,  'campus',       'study',     3, '#2563eb'),
+    ('Get-together',    'get-together',    'private'::ec_event_visibility, 'public_place', 'gathering', 4, '#0284c7')
+  ) AS t(name, slug, vis, venue, cat, ord, color)
+  ON CONFLICT (church_id, slug) DO NOTHING;
+$$;
+
+SELECT ec_seed_event_types(id) FROM churches;
+
+-- Encounter asked for "Creation Night" and "Prayer Set" by name
+-- (docs/connection-hub-plan.md). Its prayer type keeps their word.
+UPDATE event_types SET name = 'Prayer Set', slug = 'prayer-set'
+WHERE slug = 'prayer-night'
+  AND church_id IN (SELECT id FROM churches WHERE slug = 'encounter');
+
 INSERT INTO event_types
-  (church_id, name, slug, default_visibility, default_is_private_residence, order_index, color)
-SELECT c.id, t.name, t.slug, t.vis, t.residence, t.ord, t.color
-FROM churches c
-CROSS JOIN (VALUES
-  ('Home Group',     'home-group',     'private'::ec_event_visibility, TRUE,  0, '#0f766e'),
-  ('Creation Night', 'creation-night', 'public'::ec_event_visibility,  FALSE, 1, '#d97706'),
-  ('Prayer Set',     'prayer-set',     'public'::ec_event_visibility,  FALSE, 2, '#7c3aed'),
-  ('Get-together',   'get-together',   'private'::ec_event_visibility, FALSE, 3, '#0284c7')
-) AS t(name, slug, vis, residence, ord, color)
+  (church_id, name, slug, default_visibility, default_venue_kind, category, order_index, color)
+SELECT id, 'Creation Night', 'creation-night', 'public', 'campus', 'gathering', 1, '#d97706'
+FROM churches WHERE slug = 'encounter'
 ON CONFLICT (church_id, slug) DO NOTHING;
 
 -- ── Events ───────────────────────────────────────────────────
@@ -118,9 +154,15 @@ CREATE TABLE events (
 
   starts_at         TIMESTAMPTZ NOT NULL,
   ends_at           TIMESTAMPTZ NOT NULL,
-  timezone          TEXT NOT NULL DEFAULT 'America/Chicago',
+  -- No default on purpose: the app writes the church's timezone. A Texas
+  -- default silently mis-times every gathering of an out-of-state church.
+  timezone          TEXT NOT NULL,
   all_day           BOOLEAN NOT NULL DEFAULT FALSE,
-  recurrence_rule   TEXT,                    -- RFC 5545 subset; phase 4
+  recurrence_rule   TEXT,                    -- unused; series_id covers weekly repeats
+  -- "Repeats weekly for N weeks" materializes N rows sharing a series id,
+  -- so the hub, map, notifications and journey never expand a rule.
+  series_id         UUID,
+  series_index      INTEGER,
 
   -- WHO CAN SEE. Private events draw their audience from event_audiences
   -- (groups) ∪ event_invites (named individuals), or the whole church when
@@ -137,23 +179,43 @@ CREATE TABLE events (
 
   status            ec_event_status NOT NULL DEFAULT 'draft',
 
-  host_profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  -- Nullable so deleting a host's account does not delete the gathering and
+  -- everyone's RSVPs with it. The UI shows "a former member".
+  host_profile_id   UUID REFERENCES profiles(id) ON DELETE SET NULL,
   cohost_profile_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
 
+  -- Where it happens. The host picks one of four on the create form:
+  --   campus       at one of the church's campuses (address is public info)
+  --   public_place a park, coffee shop, restaurant
+  --   home         someone's home: never geocoded, never sharper on a map
+  --                than its campus pin, address gated for private events
+  --   online       no address, no pin
+  -- Anything not affirmatively a campus or public place is a home.
+  venue_kind        TEXT NOT NULL DEFAULT 'campus'
+    CHECK (venue_kind IN ('campus', 'public_place', 'home', 'online')),
+  is_private_residence BOOLEAN GENERATED ALWAYS AS (venue_kind = 'home') STORED,
+
+  -- Always-safe location label: a place name and the city. The street
+  -- address and exact coordinates live in event_addresses.
   location_name     TEXT,
-  address_line1     TEXT,
-  address_line2     TEXT,
   city              TEXT,
   region            TEXT,
-  postal_code       TEXT,
-  lat               NUMERIC(9,6),
-  lng               NUMERIC(9,6),
-  -- Hosted at a private residence. Never auto-derived — the host says so
-  -- (defaulted from the event type) because only they know.
-  is_private_residence     BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- The ONLY coordinates a map, feed or radius query may read. Equal to the
+  -- exact pin only when the address is visible to everyone who can see the
+  -- gathering; otherwise the campus pin, or NULL. Derived server-side.
+  public_lat        NUMERIC(9,6),
+  public_lng        NUMERIC(9,6),
+
   -- Only meaningful for PRIVATE events. On a public event the address is
-  -- public by definition, which is what 'public' means.
+  -- public by definition, which is what 'public' means. Private home
+  -- gatherings always hold the address until RSVP (CHECK below).
   hide_address_until_rsvp  BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- A home gathering can be public only after the host confirms, in plain
+  -- language, that the street address goes on the open internet. Enforced
+  -- here so no code path can skip the confirmation.
+  public_home_acknowledged_at TIMESTAMPTZ,
 
   -- Seams back to scheduling: an optional church room, and a reserved slot
   -- for "this event also holds a room booking" so we never migrate for it.
@@ -184,7 +246,13 @@ CREATE TABLE events (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT chk_event_range CHECK (ends_at > starts_at),
-  CONSTRAINT chk_event_capacity CHECK (capacity IS NULL OR capacity > 0)
+  CONSTRAINT chk_event_capacity CHECK (capacity IS NULL OR capacity > 0),
+  CONSTRAINT chk_public_shows_address
+    CHECK (NOT (visibility = 'public' AND hide_address_until_rsvp)),
+  CONSTRAINT chk_private_home_holds_address
+    CHECK (NOT (visibility = 'private' AND venue_kind = 'home' AND NOT hide_address_until_rsvp)),
+  CONSTRAINT chk_public_home_acknowledged
+    CHECK (NOT (visibility = 'public' AND venue_kind = 'home' AND public_home_acknowledged_at IS NULL))
 );
 
 CREATE TRIGGER events_updated_at
@@ -200,12 +268,37 @@ CREATE INDEX idx_events_public_starts
   ON events(church_id, starts_at)
   WHERE status = 'published' AND visibility = 'public';
 CREATE INDEX idx_events_host ON events(host_profile_id);
+CREATE INDEX idx_events_series ON events(series_id) WHERE series_id IS NOT NULL;
+-- Bounding-box map queries read public coordinates only.
+CREATE INDEX idx_events_public_coords
+  ON events(public_lat, public_lng) WHERE public_lat IS NOT NULL;
 CREATE INDEX idx_events_type ON events(event_type_id);
 CREATE INDEX idx_events_pinned ON events(pinned_at) WHERE pinned_at IS NOT NULL;
 
 COMMENT ON COLUMN events.audience_is_church_wide IS
   'Explicit "everyone at my church" audience for a private event. Never '
   'inferred from an empty event_audiences list.';
+
+-- ── Addresses ────────────────────────────────────────────────
+-- The street address and exact pin, one row per gathering, behind their
+-- own RLS policy (ec_can_see_event_address, below). Homes are never sent
+-- to a geocoder, so lat/lng is NULL for them unless the host drops a pin.
+
+CREATE TABLE event_addresses (
+  event_id      UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+  address_line1 TEXT,
+  address_line2 TEXT,
+  postal_code   TEXT,
+  lat           NUMERIC(9,6),
+  lng           NUMERIC(9,6),
+  geocoded_at   TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TRIGGER event_addresses_updated_at
+  BEFORE UPDATE ON event_addresses
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ── Audience: targeted groups ────────────────────────────────
 
@@ -250,10 +343,14 @@ CREATE TABLE event_rsvps (
   guest_count  INTEGER NOT NULL DEFAULT 0,
   note         TEXT,
   responded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Check-in by the host, cohost or staff. Completes "attend a gathering"
+  -- journey steps in a later phase and feeds the admin's attendance view.
+  attended_at             TIMESTAMPTZ,
+  checked_in_by_profile_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (event_id, profile_id),
-  CONSTRAINT chk_rsvp_guests CHECK (guest_count >= 0)
+  CONSTRAINT chk_rsvp_guests CHECK (guest_count BETWEEN 0 AND 20)
 );
 
 CREATE TRIGGER event_rsvps_updated_at
@@ -273,7 +370,9 @@ CREATE INDEX idx_event_rsvps_profile ON event_rsvps(profile_id);
 CREATE TABLE event_reports (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id               UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-  reporter_profile_id    UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  -- SET NULL, not CASCADE: deleting an account must not erase the report
+  -- history that the reporter-standing rules depend on.
+  reporter_profile_id    UUID REFERENCES profiles(id) ON DELETE SET NULL,
   reason                 ec_report_reason NOT NULL DEFAULT 'other',
   note                   TEXT,
   created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -414,19 +513,140 @@ COMMENT ON FUNCTION ec_can_see_event(UUID) IS
   'logic anywhere — resolveEventAudience() in lib/events/audience.ts is '
   'the notify-side twin and must be kept in agreement with it.';
 
--- Can the current user host events? Anyone who has been through the connect
--- platform, plus staff. Used by the create-event action and the hub UI.
+-- Can the current user host events? Staff, or someone who has been through
+-- the connect journey AT THIS CHURCH. (Standing earned at one church never
+-- carries to another.) Migration 031 adds host standing (blocked / trusted)
+-- and migration 034 the host-orientation gate.
 CREATE OR REPLACE FUNCTION ec_can_host_events()
-RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
 AS $$
   SELECT
     ec_is_platform_admin()
-    OR ec_has_role('connector')
     OR EXISTS (
-      SELECT 1 FROM participants p
-      WHERE p.profile_id = auth.uid()
-        AND p.status IN ('connected', 'completed')
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.church_id IS NOT NULL
+        AND (
+          p.role <> 'participant'
+          OR EXISTS (
+            SELECT 1 FROM participants pa
+            WHERE pa.profile_id = p.id
+              AND pa.church_id = p.church_id
+              AND pa.status IN ('connected', 'completed')
+          )
+        )
     );
+$$;
+
+-- ============================================================
+-- The address rule. The street address and exact pin of a gathering are
+-- visible when the gathering is visible AND one of:
+--   * it is public (that is what public means; a public HOME needs the
+--     host's recorded acknowledgement, see chk_public_home_acknowledged)
+--   * the host chose not to hold the address until RSVP
+--   * the viewer is the host or cohost
+--   * the viewer is a campus admin or church admin of its church
+--     (volunteer connectors earn it by RSVP like anyone else)
+--   * the viewer RSVP'd "going" (not "maybe")
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION ec_can_see_event_address(e_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  e    events;
+  uid  UUID := auth.uid();
+BEGIN
+  IF NOT ec_can_see_event(e_id) THEN
+    RETURN FALSE;
+  END IF;
+
+  SELECT * INTO e FROM events WHERE id = e_id;
+
+  IF e.visibility = 'public' OR NOT e.hide_address_until_rsvp THEN
+    RETURN TRUE;
+  END IF;
+
+  IF uid IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  IF ec_is_platform_admin()
+     OR uid = e.host_profile_id
+     OR uid = e.cohost_profile_id
+     OR (e.church_id = ec_current_church_id() AND ec_has_role('campus_admin')) THEN
+    RETURN TRUE;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1 FROM event_rsvps r
+    WHERE r.event_id = e_id AND r.profile_id = uid AND r.status = 'going'
+  );
+END;
+$$;
+
+COMMENT ON FUNCTION ec_can_see_event_address(UUID) IS
+  'The single address rule: event_addresses RLS. revealAddress() in '
+  'lib/events/queries.ts mirrors it for presentation and must agree.';
+
+-- Who is coming, as a narrow projection. profiles RLS hides other people's
+-- rows from members, so this is the one place a roster with names is built:
+--   host, cohost, staff of the church: everyone who responded, full names
+--   a member who RSVP'd "going" to a PRIVATE gathering they can see: the
+--     others who are going, first name + last initial
+--   anyone else: nothing (public gatherings show a count, never names)
+CREATE OR REPLACE FUNCTION ec_event_attendees(e_id UUID)
+RETURNS TABLE (
+  profile_id   UUID,
+  first_name   TEXT,
+  last_name    TEXT,
+  status       ec_rsvp_status,
+  guest_count  INTEGER,
+  attended_at  TIMESTAMPTZ,
+  responded_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  e    events;
+  uid  UUID := auth.uid();
+  full_view BOOLEAN;
+BEGIN
+  IF uid IS NULL OR NOT ec_can_see_event(e_id) THEN
+    RETURN;
+  END IF;
+
+  SELECT * INTO e FROM events WHERE id = e_id;
+
+  full_view := ec_is_platform_admin()
+    OR uid = e.host_profile_id
+    OR uid = e.cohost_profile_id
+    OR (e.church_id = ec_current_church_id() AND ec_has_role('connector'));
+
+  IF full_view THEN
+    RETURN QUERY
+      SELECT r.profile_id, p.first_name, p.last_name, r.status, r.guest_count,
+             r.attended_at, r.responded_at
+      FROM event_rsvps r
+      JOIN profiles p ON p.id = r.profile_id
+      WHERE r.event_id = e_id
+      ORDER BY r.status, p.first_name, p.last_name;
+    RETURN;
+  END IF;
+
+  IF e.visibility = 'private' AND EXISTS (
+    SELECT 1 FROM event_rsvps r
+    WHERE r.event_id = e_id AND r.profile_id = uid AND r.status = 'going'
+  ) THEN
+    RETURN QUERY
+      SELECT r.profile_id, p.first_name, NULLIF(LEFT(p.last_name, 1), ''),
+             r.status, r.guest_count, NULL::timestamptz, r.responded_at
+      FROM event_rsvps r
+      JOIN profiles p ON p.id = r.profile_id
+      WHERE r.event_id = e_id AND r.status = 'going'
+      ORDER BY p.first_name;
+  END IF;
+END;
 $$;
 
 -- ── RLS: events ──────────────────────────────────────────────
@@ -474,6 +694,39 @@ CREATE POLICY "events_delete_admin"
   USING (
     ec_is_platform_admin()
     OR (church_id = ec_current_church_id() AND ec_has_role('campus_admin'))
+  );
+
+-- ── RLS: event_addresses ─────────────────────────────────────
+
+ALTER TABLE event_addresses ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "event_addresses_read"
+  ON event_addresses FOR SELECT TO authenticated
+  USING (ec_can_see_event_address(event_id));
+
+CREATE POLICY "event_addresses_write"
+  ON event_addresses FOR ALL TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM events e
+      WHERE e.id = event_addresses.event_id
+        AND (
+          ec_is_platform_admin()
+          OR e.host_profile_id = auth.uid()
+          OR (e.church_id = ec_current_church_id() AND ec_has_role('campus_admin'))
+        )
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM events e
+      WHERE e.id = event_addresses.event_id
+        AND (
+          ec_is_platform_admin()
+          OR e.host_profile_id = auth.uid()
+          OR (e.church_id = ec_current_church_id() AND ec_has_role('campus_admin'))
+        )
+    )
   );
 
 -- ── RLS: event_types ─────────────────────────────────────────
@@ -594,10 +847,92 @@ CREATE POLICY "event_rsvps_read"
   );
 
 -- You may only RSVP for yourself, and only to an event you can see.
+-- Check-in (attended_at) is recorded by the host side, not self-reported;
+-- the guard trigger below enforces that column.
 CREATE POLICY "event_rsvps_write_own"
   ON event_rsvps FOR ALL TO authenticated
   USING (profile_id = auth.uid())
-  WITH CHECK (profile_id = auth.uid() AND ec_can_see_event(event_id));
+  WITH CHECK (
+    profile_id = auth.uid()
+    AND ec_can_see_event(event_id)
+    AND status IN ('going', 'maybe', 'not_going')
+  );
+
+-- Host, cohost and staff record attendance on the roster.
+CREATE POLICY "event_rsvps_checkin_host"
+  ON event_rsvps FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM events e
+      WHERE e.id = event_rsvps.event_id
+        AND (
+          ec_is_platform_admin()
+          OR e.host_profile_id = auth.uid()
+          OR e.cohost_profile_id = auth.uid()
+          OR (e.church_id = ec_current_church_id() AND ec_has_role('connector'))
+        )
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM events e
+      WHERE e.id = event_rsvps.event_id
+        AND (
+          ec_is_platform_admin()
+          OR e.host_profile_id = auth.uid()
+          OR e.cohost_profile_id = auth.uid()
+          OR (e.church_id = ec_current_church_id() AND ec_has_role('connector'))
+        )
+    )
+  );
+
+-- Same definition as migration 029 (which may be applied first on a hosted
+-- project); repeated so this file stands on its own in a fresh database.
+CREATE OR REPLACE FUNCTION ec_is_server_role()
+RETURNS BOOLEAN LANGUAGE sql STABLE
+AS $$
+  SELECT current_user IN ('postgres', 'service_role', 'supabase_admin', 'supabase_auth_admin');
+$$;
+
+CREATE OR REPLACE FUNCTION ec_guard_rsvp_attendance()
+RETURNS TRIGGER LANGUAGE plpgsql SET search_path = public
+AS $$
+DECLARE
+  e events;
+BEGIN
+  IF ec_is_server_role() THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE'
+     AND NEW.attended_at IS NOT DISTINCT FROM OLD.attended_at
+     AND NEW.checked_in_by_profile_id IS NOT DISTINCT FROM OLD.checked_in_by_profile_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' AND NEW.attended_at IS NULL AND NEW.checked_in_by_profile_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT * INTO e FROM events WHERE id = NEW.event_id;
+  -- COALESCE: with no cohost, "uid = cohost" is NULL, and NOT (... OR NULL)
+  -- is NULL, which IF treats as false. A deny check must never see NULL.
+  IF NOT COALESCE(
+    ec_is_platform_admin()
+    OR auth.uid() = e.host_profile_id
+    OR auth.uid() = e.cohost_profile_id
+    OR (e.church_id = ec_current_church_id() AND ec_has_role('connector')),
+    FALSE
+  ) THEN
+    RAISE EXCEPTION 'Attendance is recorded by the host.' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER event_rsvps_guard_attendance
+  BEFORE INSERT OR UPDATE ON event_rsvps
+  FOR EACH ROW EXECUTE FUNCTION ec_guard_rsvp_attendance();
 
 -- ── RLS: event_reports ───────────────────────────────────────
 -- Insert is gated by ec_can_see_event: you can only report what you can
@@ -654,5 +989,21 @@ CREATE POLICY "event_batches_read_staff_or_host"
         AND ec_has_role('campus_admin')
     )
   );
+
+-- ── API grants ───────────────────────────────────────────────
+-- anon gets nothing: the signed-out hub reads public gatherings through the
+-- service role with an explicit public filter (listPublicEvents).
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  event_types, events, event_addresses, event_audiences, event_invites,
+  event_rsvps, event_reports, event_notification_batches
+  TO authenticated;
+GRANT ALL ON
+  event_types, events, event_addresses, event_audiences, event_invites,
+  event_rsvps, event_reports, event_notification_batches
+  TO service_role;
+GRANT EXECUTE ON FUNCTION
+  ec_can_see_event(UUID), ec_can_see_event_address(UUID), ec_can_host_events(),
+  ec_event_attendees(UUID), ec_seed_event_types(UUID)
+  TO authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';

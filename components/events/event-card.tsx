@@ -3,6 +3,7 @@ import { CalendarDays, Lock, MapPin, Pin, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { ViewerEvent } from '@/lib/events/types';
+import { formatDateInZone, formatTimeInZone } from '@/lib/time/zoned';
 
 /**
  * One event in the hub's list view.
@@ -12,19 +13,11 @@ import type { ViewerEvent } from '@/lib/events/types';
  * cannot leak an address by getting a condition wrong.
  */
 
+/** In the gathering's own timezone, never the server's. */
 function formatWhen(e: ViewerEvent): string {
-  const start = new Date(e.starts_at);
-  const date = start.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+  const date = formatDateInZone(e.starts_at, e.timezone, { weekday: 'short', month: 'short', day: 'numeric' });
   if (e.all_day) return `${date} · all day`;
-  const time = start.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-  return `${date} · ${time}`;
+  return `${date} · ${formatTimeInZone(e.starts_at, e.timezone)}`;
 }
 
 export function EventCard({ event }: { event: ViewerEvent }) {
@@ -59,7 +52,7 @@ export function EventCard({ event }: { event: ViewerEvent }) {
             {event.visibility === 'private' && (
               <span
                 className="inline-flex items-center gap-1 text-[11px] text-foreground-subtle"
-                title="Only people in this event's groups can see it"
+                title="Only the people it's for can see it"
               >
                 <Lock className="h-3 w-3" />
                 Private

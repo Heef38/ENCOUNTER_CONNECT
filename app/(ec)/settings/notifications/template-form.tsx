@@ -23,6 +23,10 @@ const KNOWN_KEYS = [
   { key: 'meeting_scheduled_to_participant',   hint: 'Sent to the participant when their meeting is booked.' },
   { key: 'meeting_confirmed_to_participant',   hint: 'Sent to the participant when the connector confirms a pending meeting.' },
   { key: 'meeting_declined_to_participant',    hint: 'Sent to the participant when the connector declines a meeting; prompts them to repick.' },
+  { key: 'connector_availability_reminder',    hint: 'Sent to a connector with no open availability. Vars: {{horizon_days}}.' },
+  { key: 'event_cancelled_to_rsvps',           hint: 'Sent to everyone who RSVP\'d going or maybe when a gathering is cancelled. Vars: {{event_title}}, {{event_when}}, {{reason_line}}, {{event_url}}, {{connect_name}}.' },
+  { key: 'event_reported_to_admin',            hint: 'Sent to campus and church admins when a gathering is reported. Vars: {{event_title}}, {{event_when}}, {{reporter_name}}, {{report_reason}}, {{hidden_line}}, {{review_url}}.' },
+  { key: 'event_message_to_host',              hint: 'Relays a member\'s message to a gathering\'s host. Vars: {{sender_name}}, {{sender_email}}, {{message}}, {{event_title}}, {{event_when}}.' },
 ];
 
 export function TemplateForm({

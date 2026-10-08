@@ -83,7 +83,7 @@ export async function reassignParticipant(
   if (!participant) return { ok: false, error: 'Participant not found.' };
 
   let nextChurch = participant.church_id as string;
-  let nextCampus = campusId && campusId !== '' ? campusId : null;
+  const nextCampus = campusId && campusId !== '' ? campusId : null;
 
   if (churchId && churchId !== participant.church_id) {
     if (!isPlatform) {

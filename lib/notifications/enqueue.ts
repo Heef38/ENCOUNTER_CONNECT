@@ -80,6 +80,34 @@ const DEFAULT_TEMPLATES: Record<
       "Open Encounter Connect to choose a different slot — we\'ll match you with whoever\'s free.\n\n" +
       '— Encounter Connect',
   },
+  event_cancelled_to_rsvps: {
+    channel: 'email',
+    subject: 'Cancelled: {{event_title}} on {{event_when}}',
+    body:
+      'Hi {{recipient_first_name}},\n\n' +
+      '{{event_title}} on {{event_when}} has been cancelled.{{reason_line}}\n\n' +
+      'Details: {{event_url}}\n\n' +
+      '— {{connect_name}}',
+  },
+  event_reported_to_admin: {
+    channel: 'email',
+    subject: 'A gathering was reported: {{event_title}}',
+    body:
+      'Hi {{recipient_first_name}},\n\n' +
+      '{{reporter_name}} reported "{{event_title}}" ({{event_when}}) as: {{report_reason}}.{{hidden_line}}\n\n' +
+      'Review it: {{review_url}}\n\n' +
+      '— {{connect_name}}',
+  },
+  event_message_to_host: {
+    channel: 'email',
+    subject: '{{sender_name}} wrote about {{event_title}}',
+    body:
+      'Hi {{recipient_first_name}},\n\n' +
+      '{{sender_name}} sent you a message about "{{event_title}}" ({{event_when}}):\n\n' +
+      '{{message}}\n\n' +
+      'Reply to them directly at {{sender_email}}.\n\n' +
+      '— {{connect_name}}',
+  },
   connector_availability_reminder: {
     channel: 'email',
     subject: 'Add your availability so people can book with you',
@@ -92,14 +120,14 @@ const DEFAULT_TEMPLATES: Record<
   },
 };
 
-function render(template: string, vars: Record<string, string | null | undefined>): string {
+export function render(template: string, vars: Record<string, string | null | undefined>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const v = vars[key];
     return v == null ? '' : v;
   });
 }
 
-async function loadTemplate(
+export async function loadTemplate(
   admin: SupabaseClient,
   churchId: string,
   key: NotificationTemplateKey,

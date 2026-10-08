@@ -169,6 +169,19 @@ export async function asCommit<T>(db: PGlite, who: Who, fn: (tx: Transaction) =>
   });
 }
 
+/**
+ * True when a write was refused: it raised, or RLS let it touch no rows.
+ * The statement must use RETURNING so the row count is visible.
+ */
+export async function refused(p: Promise<{ rows: unknown[] }>): Promise<boolean> {
+  try {
+    const r = await p;
+    return r.rows.length === 0;
+  } catch {
+    return true;
+  }
+}
+
 /** Resolves to the error message when `p` rejects, or null when it succeeds. */
 export async function errorOf(p: Promise<unknown>): Promise<string | null> {
   try {

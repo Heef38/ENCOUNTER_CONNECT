@@ -1,12 +1,11 @@
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
-import { Video, ExternalLink, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { notFound } from 'next/navigation';
+import { Video, ExternalLink, ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/dal';
 import {
   createServerSupabaseClient,
   createServiceRoleClient,
 } from '@/lib/supabase/server';
-import { Button } from '@/components/ui/button';
 import {
   selfMarkStepComplete,
   markEventAttended,
@@ -162,20 +161,21 @@ export default async function JourneyStepPage({
 
   let proposedSlots: ProposedSlot[] = [];
   let allSlots: { starts_at: string; ends_at: string }[] = [];
-  if (
-    step.step_type === 'schedule'
-    && step.output_kind === 'auto_match_connector'
-    && step.appointment_type_id
-    && progress.participant.campus_id
-    && !booking
-  ) {
+  // Both booking modes book inside the journey: auto-match proposes three
+  // times; "choose any open time" lists them all. Neither sends a
+  // participant into SchedulingCore's own screens, which are staff-only.
+  const canBookHere = Boolean(
+    step.step_type === 'schedule' && step.appointment_type_id && progress.participant.campus_id,
+  );
+  if (canBookHere && !booking && step.appointment_type_id && progress.participant.campus_id) {
     const admin = await createServiceRoleClient();
     const slotArgs = {
       campusId: progress.participant.campus_id,
       appointmentTypeId: step.appointment_type_id,
     };
+    const autoMatch = step.output_kind === 'auto_match_connector';
     const [proposed, all] = await Promise.all([
-      proposeConnectorSlots(admin, slotArgs),
+      autoMatch ? proposeConnectorSlots(admin, slotArgs) : Promise.resolve([] as ProposedSlot[]),
       listConnectorSlots(admin, slotArgs),
     ]);
     proposedSlots = proposed;
@@ -297,25 +297,16 @@ export default async function JourneyStepPage({
             )}
 
             {!booking && (
-              step.output_kind === 'auto_match_connector' ? (
+              canBookHere ? (
                 <ConnectorSlotPicker
                   proposedSlots={proposedSlots}
                   allSlots={allSlots}
                   bookAction={bookAction}
                 />
               ) : (
-                <Link
-                  href={
-                    step.appointment_type_id
-                      ? `/scheduling/new-booking?type=${step.appointment_type_id}&progress=${progress.id}`
-                      : '/scheduling/new-booking'
-                  }
-                >
-                  <Button className="w-full">
-                    <CalendarDays className="h-4 w-4" />
-                    Book your appointment
-                  </Button>
-                </Link>
+                <p className="rounded-lg border border-border bg-surface p-4 text-base text-foreground-muted">
+                  Someone from your church will reach out to find a time that works.
+                </p>
               )
             )}
           </div>

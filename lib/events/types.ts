@@ -16,6 +16,15 @@ export type InviteRing = 'members_only' | 'members_plus_eligible' | 'church_wide
 
 export type RsvpStatus = 'going' | 'maybe' | 'not_going' | 'waitlist';
 
+/**
+ * Where a gathering happens. Anything that is not affirmatively a campus or
+ * a public place is someone's home: never geocoded, never sharper on a map
+ * than its campus pin, and its address held until RSVP when private.
+ */
+export type VenueKind = 'campus' | 'public_place' | 'home' | 'online';
+
+export type EventCategory = 'gathering' | 'prayer' | 'study' | 'serve' | 'youth' | 'outreach' | 'other';
+
 export type ReportReason =
   | 'not_legitimate'
   | 'inappropriate'
@@ -48,7 +57,8 @@ export interface EventType {
   color: string | null;
   icon: string | null;
   default_visibility: EventVisibility;
-  default_is_private_residence: boolean;
+  default_venue_kind: VenueKind;
+  category: EventCategory;
   is_active: boolean;
   order_index: number;
 }
@@ -66,26 +76,29 @@ export interface EventRow {
   ends_at: string;
   timezone: string;
   all_day: boolean;
-  recurrence_rule: string | null;
+  series_id: string | null;
+  series_index: number | null;
 
   visibility: EventVisibility;
   audience_is_church_wide: boolean;
   invite_ring: InviteRing;
   status: EventStatus;
 
-  host_profile_id: string;
+  /** Null when the host's account was deleted. */
+  host_profile_id: string | null;
   cohost_profile_id: string | null;
 
+  venue_kind: VenueKind;
+  /** Generated: venue_kind = 'home'. */
+  is_private_residence: boolean;
   location_name: string | null;
-  address_line1: string | null;
-  address_line2: string | null;
   city: string | null;
   region: string | null;
-  postal_code: string | null;
-  lat: number | null;
-  lng: number | null;
-  is_private_residence: boolean;
+  /** Map-safe coordinates, derived by the database (migration 033). */
+  public_lat: number | null;
+  public_lng: number | null;
   hide_address_until_rsvp: boolean;
+  public_home_acknowledged_at: string | null;
 
   scheduling_location_id: string | null;
   scheduling_booking_id: string | null;
@@ -112,43 +125,61 @@ export interface EventRow {
   updated_at: string;
 }
 
+/** The street address and exact pin, behind ec_can_see_event_address. */
+export interface EventAddressRow {
+  event_id: string;
+  address_line1: string | null;
+  address_line2: string | null;
+  postal_code: string | null;
+  lat: number | null;
+  lng: number | null;
+  geocoded_at: string | null;
+}
+
 /**
  * An event as it is safe to render to a particular viewer.
  *
- * The address fields are **deliberately not** the raw columns. `toViewerEvent`
- * in queries.ts is the only place that decides whether a viewer gets the street
- * address or just the neighborhood, and it returns this shape so a future map
- * view, ICS export, or JSON feed physically cannot leak an address by
- * forgetting to apply the rule.
+ * Nothing private reaches this shape by accident: the street address comes
+ * through event_addresses RLS (the database decides) and is then passed
+ * through revealAddress() in queries.ts, which mirrors the same rule.
+ * There is deliberately no host contact field — contact runs through the
+ * in-app "message the host" relay — so a map, feed or ICS export built on
+ * this type cannot leak a member's phone number.
  */
 export interface ViewerEvent {
   id: string;
+  church_id: string;
   title: string;
   description: string | null;
   starts_at: string;
   ends_at: string;
   timezone: string;
   all_day: boolean;
+  series_id: string | null;
 
   status: EventStatus;
   visibility: EventVisibility;
+  venue_kind: VenueKind;
   is_pinned: boolean;
 
   event_type: Pick<EventType, 'id' | 'name' | 'slug' | 'color'> | null;
   campus: { id: string; name: string } | null;
 
+  /** Full name for signed-in members of the church; first name + initial otherwise. */
   host_name: string;
-  /** Host contact is never included for anonymous viewers — see §8. */
-  host_contact: { email: string | null; phone: string | null } | null;
 
-  /** Always safe to show: a human label like "Midtown" or "Grace Chapel". */
+  /** Always safe to show: a place name and the city. */
   location_label: string | null;
-  /** Full street address, or null when the reveal gate withheld it. */
+  /** Full street address, or null when the gate withheld it. */
   address: string | null;
   /** True when an address exists but this viewer hasn't earned it yet. */
   address_hidden_pending_rsvp: boolean;
-  lat: number | null;
-  lng: number | null;
+  /** The pin to draw on a map. Never sharper than this page. */
+  map_lat: number | null;
+  map_lng: number | null;
+  /** The exact venue pin, only alongside a revealed address (detail mini-map). */
+  exact_lat: number | null;
+  exact_lng: number | null;
 
   capacity: number | null;
   rsvp_required: boolean;
@@ -156,13 +187,18 @@ export interface ViewerEvent {
   going_count: number;
   /** The viewer's own RSVP, if any. Never other people's. */
   my_rsvp: RsvpStatus | null;
+  my_guest_count: number;
 
   cancellation_reason: string | null;
 
   /** Viewer capabilities, resolved server-side so the UI never guesses. */
+  is_host: boolean;
   can_edit: boolean;
   can_report: boolean;
   can_rsvp: boolean;
+  can_check_in: boolean;
+  can_pin: boolean;
+  can_message_host: boolean;
 }
 
 export interface GroupRow {
@@ -175,6 +211,7 @@ export interface GroupRow {
   description: string | null;
   parent_group_id: string | null;
   is_private: boolean;
+  is_youth: boolean;
   leader_profile_id: string | null;
   serve_team_id: string | null;
   is_active: boolean;
@@ -190,14 +227,20 @@ export interface GroupWithCounts extends GroupRow {
 
 // ── Inputs ────────────────────────────────────────────────────
 
-export interface CreateEventInput {
+/**
+ * What the create and edit forms send. Times are wall-clock values in the
+ * church's timezone (the server converts), so a host on a laptop set to
+ * another zone still creates a 7pm gathering at 7pm.
+ */
+export interface EventInput {
   event_type_id: string;
   title: string;
   description?: string;
-  starts_at: string;
-  ends_at: string;
-  timezone?: string;
-  all_day?: boolean;
+  /** 'YYYY-MM-DD' in the church's timezone. */
+  date: string;
+  /** 'HH:mm' in the church's timezone. */
+  start_time: string;
+  end_time: string;
   campus_id?: string | null;
 
   visibility: EventVisibility;
@@ -208,21 +251,23 @@ export interface CreateEventInput {
   invite_ring?: InviteRing;
   invite_profile_ids?: string[];
 
+  venue_kind: VenueKind;
   location_name?: string;
   address_line1?: string;
   address_line2?: string;
   city?: string;
   region?: string;
   postal_code?: string;
-  is_private_residence?: boolean;
+  /** Private public-place gatherings may hold the address; private homes always do. */
   hide_address_until_rsvp?: boolean;
-  scheduling_location_id?: string | null;
+  /** The host's plain-language confirmation for a public home gathering. */
+  acknowledged_public_home?: boolean;
 
   capacity?: number | null;
   rsvp_required?: boolean;
-  rsvp_deadline?: string | null;
-  image_url?: string;
 
+  /** Create only: repeat weekly for this many weeks in total (1 = once). */
+  repeat_weeks?: number;
   /** Publish immediately, or leave as a draft. */
   publish?: boolean;
 }
@@ -234,6 +279,15 @@ export interface EventListFilters {
   campus_id?: string;
   group_id?: string;
   q?: string;
+}
+
+export interface EventAttendee {
+  profile_id: string;
+  first_name: string;
+  last_name: string | null;
+  status: RsvpStatus;
+  guest_count: number;
+  attended_at: string | null;
 }
 
 // ── Audience preview ──────────────────────────────────────────

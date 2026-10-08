@@ -7,9 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test --test-force-exit \"tests/**/*.test.ts\"",
-    "test:db": "node --test --test-force-exit \"tests/db/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/register.mjs --test --test-force-exit \"tests/**/*.test.ts\"",
+    "test:db": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/register.mjs --test --test-force-exit \"tests/db/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/register.mjs --test --test-force-exit \"tests/unit/*.test.ts\""
   },
   "dependencies": {
     "@sentry/nextjs": "^10.69.0",
@@ -19,6 +20,7 @@
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "lucide-react": "^1.9.0",
+    "maplibre-gl": "5.24.0",
     "next": "16.2.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",

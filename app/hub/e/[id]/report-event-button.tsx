@@ -18,17 +18,17 @@ const REASONS: Array<{ value: ReportReason; label: string }> = [
 ];
 
 /**
- * Reporting pulls the event from the hub immediately and alerts an admin.
- * Only people who can *see* an event can report it (enforced by the RLS INSERT
- * policy, which is the same `ec_can_see_event` rule as the read path), so a
- * private event is only reportable by its own audience.
+ * Reporting alerts the church's admins. A report from someone connected at
+ * the church takes the gathering off the hub until an admin looks; anyone
+ * else's report is recorded and sent without pulling it. Only people who can
+ * see a gathering can report it (the RLS INSERT policy is ec_can_see_event).
  */
 export function ReportEventButton({ eventId }: { eventId: string }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState<ReportReason>('not_legitimate');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<null | { hidden: boolean }>(null);
   const [pending, startTransition] = useTransition();
 
   function submit() {
@@ -36,7 +36,7 @@ export function ReportEventButton({ eventId }: { eventId: string }) {
     startTransition(async () => {
       const result = await reportEvent(eventId, reason, note);
       if (result.success) {
-        setDone(true);
+        setDone(result.data);
       } else {
         setError(result.error);
       }
@@ -62,15 +62,16 @@ export function ReportEventButton({ eventId }: { eventId: string }) {
             Report this event
           </h2>
           <p className="mt-1 text-xs text-foreground-muted">
-            It comes off the hub right away and a church admin takes a look.
+            A church admin takes a look. Reports from people connected at this church take it off the hub until then.
           </p>
         </div>
 
         <div className="flex-1 space-y-4 overflow-auto px-5 py-4">
           {done ? (
             <p className="text-sm text-foreground">
-              Thanks — it&apos;s been pulled from the hub and an admin has been
-              notified.
+              {done.hidden
+                ? "Thanks. It's off the hub and the church's admins have been told."
+                : "Thanks. The church's admins have been told and will take a look."}
             </p>
           ) : (
             <>

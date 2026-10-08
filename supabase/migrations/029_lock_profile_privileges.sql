@@ -79,10 +79,11 @@ BEGIN
   -- Roles are granted by a church admin of the person's own church. Nobody
   -- grants themselves a role (a church admin stepping down is allowed).
   IF NEW.role IS DISTINCT FROM OLD.role THEN
-    IF NOT (
+    IF NOT COALESCE(
       ec_current_role() = 'church_admin'
       AND OLD.church_id IS NOT DISTINCT FROM ec_current_church_id()
-      AND (NEW.id <> auth.uid() OR NEW.role <> 'church_admin')
+      AND (NEW.id IS DISTINCT FROM auth.uid() OR NEW.role <> 'church_admin'),
+      FALSE
     ) THEN
       RAISE EXCEPTION 'Only a church admin can change roles in their church.'
         USING ERRCODE = '42501';
@@ -100,7 +101,7 @@ BEGIN
   -- (with their attestation) runs as the service role.
   IF (NEW.sms_consent_at IS DISTINCT FROM OLD.sms_consent_at
       OR NEW.sms_consent_source IS DISTINCT FROM OLD.sms_consent_source)
-     AND NEW.id <> auth.uid() THEN
+     AND NEW.id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Only the person can change their texting consent.'
       USING ERRCODE = '42501';
   END IF;

@@ -1,6 +1,7 @@
 import { MonthCalendar, type CalendarItem } from '@/components/calendar/month-calendar';
 import { EventCard } from '@/components/events/event-card';
 import { HubFilters, type HubView as HubViewMode } from '@/components/events/hub-filters';
+import { GatheringMap, type MapPin } from '@/components/map/gathering-map';
 import type { EventType, ViewerEvent } from '@/lib/events/types';
 
 /**
@@ -18,8 +19,13 @@ interface HubViewProps {
   campuses: Array<{ id: string; name: string }>;
   view: HubViewMode;
   month: { year: number; month: number };
-  active: { type?: string; group?: string; campus?: string; month?: string };
+  active: { type?: string; group?: string; campus?: string; month?: string; church?: string };
   emptyMessage: string;
+  /** Church timezone: the calendar groups days in it, not the browser's. */
+  timeZone: string;
+  /** Pins for the map view, already safe (see lib/events/map-pins.ts). */
+  pins?: MapPin[];
+  mapCenter?: { lat: number; lng: number } | null;
 }
 
 function toCalendarItems(events: ViewerEvent[]): CalendarItem[] {
@@ -45,8 +51,12 @@ export function HubView({
   month,
   active,
   emptyMessage,
+  timeZone,
+  pins = [],
+  mapCenter = null,
 }: HubViewProps) {
   const pinned = events.filter((e) => e.is_pinned);
+  const offMap = events.filter((e) => e.map_lat === null && e.venue_kind !== 'online');
 
   return (
     <div className="space-y-6">
@@ -73,8 +83,22 @@ export function HubView({
         </section>
       )}
 
-      {view === 'calendar' ? (
+      {view === 'map' ? (
+        <section className="space-y-3">
+          <GatheringMap pins={pins} center={mapCenter} label="Map of this month's gatherings" />
+          <p className="text-xs text-foreground-subtle">
+            Hollow pins sit at the church: the gathering is in a home or shares its address with people going.
+            {offMap.length > 0 ? ` ${offMap.length} gathering${offMap.length === 1 ? ' has' : 's have'} no pin yet; see the list.` : ''}
+          </p>
+          {events.length === 0 && (
+            <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-foreground-muted">
+              {emptyMessage}
+            </p>
+          )}
+        </section>
+      ) : view === 'calendar' ? (
         <MonthCalendar
+          timeZone={timeZone}
           year={month.year}
           month={month.month}
           items={toCalendarItems(events)}
@@ -84,8 +108,9 @@ export function HubView({
             type: active.type,
             group: active.group,
             campus: active.campus,
+            church: active.church,
           }}
-          itemNoun={['event', 'events']}
+          itemNoun={['gathering', 'gatherings']}
         />
       ) : (
         <section className="space-y-3">

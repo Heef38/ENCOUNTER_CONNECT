@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import { Sheet } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { dayKeyInZone, formatTimeInZone } from '@/lib/time/zoned';
 
 /**
  * Domain-neutral month calendar.
@@ -51,6 +52,12 @@ interface MonthCalendarProps {
   /** Copy for the day sheet's count line, e.g. ["event","events"]. */
   itemNoun?: [string, string];
   emptyDayLabel?: string;
+  /**
+   * IANA zone the calendar's days and times are in (a church's). Without
+   * it the calendar uses the runtime's zone: UTC while rendering on the
+   * server, the browser's after hydration.
+   */
+  timeZone?: string;
 }
 
 const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -77,11 +84,18 @@ function buildHref(
   return `${base}?${new URLSearchParams(entries as [string, string][]).toString()}`;
 }
 
-function formatTime(iso: string): string {
+function formatTime(iso: string, timeZone?: string): string {
+  if (timeZone) return formatTimeInZone(iso, timeZone);
   return new Date(iso).toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function dayKey(iso: string | Date, timeZone?: string): string {
+  if (timeZone) return dayKeyInZone(iso, timeZone);
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 export function MonthCalendar({
@@ -93,6 +107,7 @@ export function MonthCalendar({
   scopeToggle,
   itemNoun = ['event', 'events'],
   emptyDayLabel,
+  timeZone,
 }: MonthCalendarProps) {
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [moreFor, setMoreFor] = useState<string | null>(null);
@@ -116,8 +131,7 @@ export function MonthCalendar({
 
     const prev = new Date(year, month - 2, 1);
     const next = new Date(year, month, 1);
-    const today = new Date();
-    const tk = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+    const tk = dayKey(new Date(), timeZone);
 
     return {
       weeks: rows,
@@ -131,13 +145,12 @@ export function MonthCalendar({
       }),
       todayKey: tk,
     };
-  }, [year, month, baseHref, extraParams]);
+  }, [year, month, baseHref, extraParams, timeZone]);
 
   const itemsByDay = useMemo(() => {
     const map = new Map<string, CalendarItem[]>();
     for (const e of items) {
-      const d = new Date(e.starts_at);
-      const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      const key = dayKey(e.starts_at, timeZone);
       const list = map.get(key) ?? [];
       list.push(e);
       map.set(key, list);
@@ -146,7 +159,7 @@ export function MonthCalendar({
       list.sort((a, b) => a.starts_at.localeCompare(b.starts_at));
     }
     return map;
-  }, [items]);
+  }, [items, timeZone]);
 
   // Close MORE popover on outside click / Escape.
   useEffect(() => {
@@ -267,6 +280,7 @@ export function MonthCalendar({
                 <EmptyDay date={cell.date.getDate()} isToday={isToday} label={emptyDayLabel} />
               ) : (
                 <FilledDay
+                  timeZone={timeZone}
                   date={cell.date.getDate()}
                   isToday={isToday}
                   visible={visibleItems}
@@ -322,7 +336,7 @@ export function MonthCalendar({
                   style={{ borderLeft: `3px solid ${e.color}` }}
                 >
                   <div className="text-xs text-foreground-muted">
-                    {formatTime(e.starts_at)} – {formatTime(e.ends_at)}
+                    {formatTime(e.starts_at, timeZone)} – {formatTime(e.ends_at, timeZone)}
                   </div>
                   <div className="mt-1 font-medium text-foreground">
                     {e.badge && (
@@ -389,7 +403,7 @@ export function MonthCalendar({
                         className="h-2 w-2 shrink-0 rounded-full"
                         style={{ background: e.color }}
                       />
-                      <span className="shrink-0 text-foreground-subtle">{formatTime(e.starts_at)}</span>
+                      <span className="shrink-0 text-foreground-subtle">{formatTime(e.starts_at, timeZone)}</span>
                       <span className="truncate text-foreground">{e.title}</span>
                     </button>
                   </li>
@@ -429,6 +443,7 @@ function FilledDay({
   overflow,
   overflowCount,
   onMore,
+  timeZone,
 }: {
   date: number;
   isToday: boolean;
@@ -436,6 +451,7 @@ function FilledDay({
   overflow: boolean;
   overflowCount: number;
   onMore: (rect: DOMRect) => void;
+  timeZone?: string;
 }) {
   const moreRef = useRef<HTMLButtonElement | null>(null);
   const slotsBelow = VISIBLE_SLOTS - 1;
@@ -445,7 +461,7 @@ function FilledDay({
       <div className="flex items-center gap-1.5 border-b border-primary-foreground/20 pb-0.5">
         <DayNumber n={date} isToday={isToday} highlighted />
         <div className="min-w-0 flex-1">
-          {visible[0] ? <ItemLine item={visible[0]} /> : null}
+          {visible[0] ? <ItemLine item={visible[0]} timeZone={timeZone} /> : null}
         </div>
       </div>
       {Array.from({ length: slotsBelow }).map((_, i) => {
@@ -475,7 +491,7 @@ function FilledDay({
         }
         return (
           <div key={i} className="border-b border-primary-foreground/20 py-0.5">
-            {item ? <ItemLine item={item} /> : <span className="invisible text-xs">.</span>}
+            {item ? <ItemLine item={item} timeZone={timeZone} /> : <span className="invisible text-xs">.</span>}
           </div>
         );
       })}
@@ -520,7 +536,7 @@ function DayNumber({
   );
 }
 
-function ItemLine({ item }: { item: CalendarItem }) {
+function ItemLine({ item, timeZone }: { item: CalendarItem; timeZone?: string }) {
   return (
     <div className="flex items-center gap-1.5 text-[11px] leading-tight">
       <span
@@ -528,7 +544,7 @@ function ItemLine({ item }: { item: CalendarItem }) {
         style={{ background: item.color }}
       />
       <span className="shrink-0 text-primary-foreground/70 tabular-nums">
-        {formatTime(item.starts_at)}
+        {formatTime(item.starts_at, timeZone)}
       </span>
       <span className="truncate text-primary-foreground">{item.title}</span>
     </div>
