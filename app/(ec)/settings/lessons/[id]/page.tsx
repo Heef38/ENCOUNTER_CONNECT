@@ -5,6 +5,7 @@ import { requireCampusAdmin } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { updateLesson, deleteLesson } from '@/lib/lessons/actions';
 import { LessonForm } from '../lesson-form';
+import { listGroups } from '@/lib/groups/queries';
 import { DeleteButton } from './delete-button';
 import type { Lesson } from '@/lib/lessons/types';
 
@@ -13,8 +14,9 @@ export default async function EditLessonPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireCampusAdmin();
+  const session = await requireCampusAdmin();
   const { id } = await params;
+  const groups = session.profile?.church_id ? await listGroups(session.profile.church_id) : [];
 
   const supabase = await createServerSupabaseClient();
   const { data } = await supabase
@@ -56,6 +58,7 @@ export default async function EditLessonPage({
 
       <LessonForm
         lesson={lesson}
+        groups={groups.map((g) => ({ id: g.id, name: g.name }))}
         action={update}
         submitLabel="Save changes"
         redirectOnSuccess="/settings/lessons"

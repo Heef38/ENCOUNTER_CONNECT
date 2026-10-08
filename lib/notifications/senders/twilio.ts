@@ -5,6 +5,11 @@ export interface SendSmsArgs {
   body: string;
   /** Override the default TWILIO_FROM_NUMBER for this send. */
   from?: string;
+  /**
+   * Send through a Twilio Messaging Service (e.g. a church's own A2P
+   * campaign) instead of a single number. Wins over `from`.
+   */
+  messagingServiceSid?: string;
 }
 
 export interface SendResult {
@@ -26,7 +31,7 @@ export async function sendSms(args: SendSmsArgs): Promise<SendResult> {
     return { ok: false, error: 'TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN is not set.' };
   }
   const from = args.from ?? defaultFrom;
-  if (!from) {
+  if (!from && !args.messagingServiceSid) {
     return { ok: false, error: 'TWILIO_FROM_NUMBER is not set.' };
   }
 
@@ -34,7 +39,8 @@ export async function sendSms(args: SendSmsArgs): Promise<SendResult> {
   const auth = Buffer.from(`${sid}:${token}`).toString('base64');
 
   const params = new URLSearchParams();
-  params.set('From', from);
+  if (args.messagingServiceSid) params.set('MessagingServiceSid', args.messagingServiceSid);
+  else params.set('From', from as string);
   params.set('To', args.to);
   params.set('Body', args.body);
 

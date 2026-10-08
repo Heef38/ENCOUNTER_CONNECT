@@ -38,7 +38,7 @@ export async function drainNotificationOutbox(
   const { data, error } = await admin
     .from('notification_outbox')
     .select(
-      'id, channel, recipient_email, recipient_phone, subject, body, status, scheduled_for',
+      'id, church_id, channel, recipient_email, recipient_phone, subject, body, status, scheduled_for, metadata',
     )
     .eq('status', 'pending')
     .lte('scheduled_for', new Date().toISOString())
@@ -50,6 +50,8 @@ export async function drainNotificationOutbox(
   const rows = (data ?? []) as Pick<
     NotificationOutboxRow,
     | 'id'
+    | 'church_id'
+    | 'metadata'
     | 'channel'
     | 'recipient_email'
     | 'recipient_phone'
@@ -58,6 +60,30 @@ export async function drainNotificationOutbox(
     | 'status'
     | 'scheduled_for'
   >[];
+
+  // Texting sender per church (church_settings, migration 032): the
+  // platform's number and campaign by default, or the church's own number
+  // or Messaging Service when it has registered one under its own brand.
+  const senders = new Map<string, { from?: string; messagingServiceSid?: string }>();
+  async function senderFor(churchId: string) {
+    if (senders.has(churchId)) return senders.get(churchId)!;
+    const { data: cs } = await admin
+      .from('church_settings')
+      .select('sms_sender_mode, sms_from_number, sms_messaging_service_sid')
+      .eq('church_id', churchId)
+      .maybeSingle();
+    const c = cs as { sms_sender_mode: string; sms_from_number: string | null; sms_messaging_service_sid: string | null } | null;
+    const sender =
+      c?.sms_sender_mode === 'own'
+        ? c.sms_messaging_service_sid
+          ? { messagingServiceSid: c.sms_messaging_service_sid }
+          : c.sms_from_number
+            ? { from: c.sms_from_number }
+            : {}
+        : {};
+    senders.set(churchId, sender);
+    return sender;
+  }
 
   for (const row of rows) {
     report.scanned += 1;
@@ -88,7 +114,9 @@ export async function drainNotificationOutbox(
             status: 'sent',
             sent_at: new Date().toISOString(),
             error: null,
-            metadata: { provider_id: result.providerId },
+            // Merge, never replace: rows carry attribution (event_id,
+            // recipient_profile_id, sender_profile_id) that later reads use.
+            metadata: { ...(row.metadata ?? {}), provider_id: result.providerId },
           })
           .eq('id', row.id);
         report.sent += 1;
@@ -115,9 +143,11 @@ export async function drainNotificationOutbox(
         continue;
       }
 
+      const sender = await senderFor(row.church_id);
       const result = await sendSms({
         to: row.recipient_phone,
         body: row.body,
+        ...sender,
       });
 
       if (result.ok) {
@@ -127,7 +157,9 @@ export async function drainNotificationOutbox(
             status: 'sent',
             sent_at: new Date().toISOString(),
             error: null,
-            metadata: { provider_id: result.providerId },
+            // Merge, never replace: rows carry attribution (event_id,
+            // recipient_profile_id, sender_profile_id) that later reads use.
+            metadata: { ...(row.metadata ?? {}), provider_id: result.providerId },
           })
           .eq('id', row.id);
         report.sent += 1;

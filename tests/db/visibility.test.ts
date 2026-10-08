@@ -290,10 +290,30 @@ test('youth and private groups stay out of the member directory', async () => {
 const canHost = async (who: Parameters<typeof as>[1]) =>
   (await as(db, who, (tx) => tx.query<{ ok: boolean }>(`SELECT ec_can_host_events() AS ok`))).rows[0].ok;
 
-test('hosting standing is earned per church and can be blocked or granted', async () => {
-  assert.equal(await canHost(w.newcomer), false, 'a brand-new signup cannot host yet');
-  assert.equal(await canHost(w.member), true);
-  assert.equal(await canHost(w.connector), true);
+test('hosting needs a completed first meeting and the host orientation, at this church', async () => {
+  // A connector assigned, or "connected" status, is not enough on its own.
+  assert.equal(await canHost(w.newcomer), false, 'a brand-new signup cannot host');
+  assert.equal(await canHost(w.member), false, 'having a connector is not the same as having met');
+  assert.equal(await canHost(w.connector), true, 'staff can host');
+
+  // Give the member a completed first meeting.
+  const flow = crypto.randomUUID();
+  const step = crypto.randomUUID();
+  await db.query(`INSERT INTO flows (id, church_id, name) VALUES ($1, $2, 'Journey')`, [flow, w.grace.id]);
+  await db.query(`INSERT INTO flow_steps (id, flow_id, title, step_type) VALUES ($1, $2, 'Meet your connector', 'schedule')`, [step, flow]);
+  const memberParticipant = (await db.query<{ id: string }>(`SELECT id FROM participants WHERE profile_id = $1`, [w.member.id])).rows[0].id;
+  await db.query(
+    `INSERT INTO participant_progress (participant_id, flow_step_id, status, meeting_completed_at) VALUES ($1, $2, 'completed', now())`,
+    [memberParticipant, step],
+  );
+  assert.equal(await canHost(w.member), false, 'met, but has not done the host orientation');
+
+  const orientation = (await db.query<{ id: string }>(
+    `SELECT id FROM lessons WHERE church_id = $1 AND purpose = 'host_orientation'`, [w.grace.id],
+  )).rows[0];
+  assert.ok(orientation, 'every church is seeded with a host orientation');
+  await db.query(`INSERT INTO lesson_completions (lesson_id, profile_id) VALUES ($1, $2)`, [orientation.id, w.member.id]);
+  assert.equal(await canHost(w.member), true, 'met and oriented: can host');
 
   // Standing at another church does not carry.
   await db.query(
@@ -309,6 +329,12 @@ test('hosting standing is earned per church and can be blocked or granted', asyn
   await db.query(`UPDATE profiles SET trusted_host_at = now() WHERE id = $1`, [w.newcomer.id]);
   assert.equal(await canHost(w.newcomer), true, 'a trusted host can host without the journey');
   await db.query(`UPDATE profiles SET trusted_host_at = NULL WHERE id = $1`, [w.newcomer.id]);
+
+  // A church can turn the orientation requirement off.
+  await db.query(`DELETE FROM lesson_completions WHERE profile_id = $1`, [w.member.id]);
+  await db.query(`UPDATE church_settings SET require_host_orientation = false WHERE church_id = $1`, [w.grace.id]);
+  assert.equal(await canHost(w.member), true, 'met is enough when the church skips the orientation');
+  await db.query(`UPDATE church_settings SET require_host_orientation = true WHERE church_id = $1`, [w.grace.id]);
 });
 
 test('only an admin of the church sets host standing, never the person', async () => {
@@ -421,4 +447,101 @@ test('only listed, verified churches appear as pins, and only as church pins', a
   assert.equal(listed.length, 1);
   assert.equal(listed[0].church_id, w.other.id);
   assert.equal(listed[0].upcoming_public, 1, 'their one public gathering is counted, nothing else is exposed');
+});
+
+// ── Contact log and the pipeline ───────────────────────────────
+
+const stageOf = async (participantProfile: { id: string }) => {
+  const pid = (await db.query<{ id: string }>(`SELECT id FROM participants WHERE profile_id = $1 AND church_id = $2`, [participantProfile.id, w.grace.id])).rows[0].id;
+  const row = (await as(db, w.admin, (tx) =>
+    tx.query<{ stage: string; flags: string[] }>(`SELECT stage, flags FROM ec_connect_pipeline($1) WHERE participant_id = $2`, [w.grace.id, pid]),
+  )).rows[0];
+  return { pid, ...row };
+};
+
+test('a newcomer moves through the stages as facts arrive', async () => {
+  // The newcomer signed up 10 days ago and nobody has reached out.
+  await db.query(`UPDATE participants SET signed_up_at = now() - interval '10 days' WHERE profile_id = $1`, [w.newcomer.id]);
+  let s1 = await stageOf(w.newcomer);
+  assert.equal(s1.stage, 'new');
+  assert.ok(s1.flags.includes('needs_contact'), 'past the 7-day contact window');
+  assert.ok(s1.flags.includes('unassigned'));
+
+  // A connector logs a call.
+  await as(db, w.connector, (tx) =>
+    tx.query(`INSERT INTO participant_touches (participant_id, church_id, kind, summary, created_by_profile_id) VALUES ($1, $2, 'call', 'Left a voicemail', $3)`,
+      [s1.pid, w.grace.id, w.connector.id]),
+  );
+  // (as() rolls back, so commit the same touch as the connector would.)
+  await db.query(`INSERT INTO participant_touches (participant_id, church_id, kind, created_by_profile_id) VALUES ($1, $2, 'call', $3)`, [s1.pid, w.grace.id, w.connector.id]);
+  s1 = await stageOf(w.newcomer);
+  assert.equal(s1.stage, 'contacted');
+  assert.ok(!s1.flags.includes('needs_contact'));
+
+  // A first meeting is booked and held: the database writes those touches itself.
+  const flow = crypto.randomUUID();
+  const step = crypto.randomUUID();
+  await db.query(`INSERT INTO flows (id, church_id, name) VALUES ($1, $2, 'J2')`, [flow, w.grace.id]);
+  await db.query(`INSERT INTO flow_steps (id, flow_id, title, step_type) VALUES ($1, $2, 'Meet', 'schedule')`, [step, flow]);
+  await db.query(`INSERT INTO participant_progress (participant_id, flow_step_id, status) VALUES ($1, $2, 'in_progress')`, [s1.pid, step]);
+  await db.query(`UPDATE participant_progress SET meeting_started_at = now() WHERE participant_id = $1 AND flow_step_id = $2`, [s1.pid, step]);
+  const system = await db.query<{ kind: string }>(`SELECT kind FROM participant_touches WHERE participant_id = $1 AND source = 'system'`, [s1.pid]);
+  assert.ok(system.rows.some((r) => r.kind === 'meeting_held'), 'a held meeting logs itself');
+  assert.equal((await stageOf(w.newcomer)).stage, 'met');
+
+  // At a table: in a home group.
+  await db.query(`INSERT INTO group_members (group_id, profile_id) VALUES ($1, $2)`, [w.groups.women, w.newcomer.id]);
+  assert.equal((await stageOf(w.newcomer)).stage, 'plugged_in');
+
+  // Serving: on a serve team.
+  const team = crypto.randomUUID();
+  await db.query(`INSERT INTO groups (id, church_id, name, kind) VALUES ($1, $2, 'Hospitality', 'serve')`, [team, w.grace.id]);
+  await db.query(`INSERT INTO group_members (group_id, profile_id) VALUES ($1, $2)`, [team, w.newcomer.id]);
+  assert.equal((await stageOf(w.newcomer)).stage, 'serving');
+});
+
+test('contact notes are for the church’s staff only', async () => {
+  const pid = (await db.query<{ id: string }>(`SELECT id FROM participants WHERE profile_id = $1`, [w.nonMember.id])).rows[0].id;
+  await db.query(`INSERT INTO participant_touches (participant_id, church_id, kind, summary) VALUES ($1, $2, 'note', 'Grieving a loss')`, [pid, w.grace.id]);
+  const asSelf = await as(db, w.nonMember, (tx) => tx.query(`SELECT * FROM participant_touches WHERE participant_id = $1`, [pid]));
+  assert.equal(asSelf.rows.length, 0, 'the person does not read the ministry’s notes about them');
+  const asVisitor = await as(db, w.visitor, (tx) => tx.query(`SELECT * FROM participant_touches`));
+  assert.equal(asVisitor.rows.length, 0, 'another church reads nothing');
+  const asConnector = await as(db, w.connector, (tx) => tx.query(`SELECT * FROM participant_touches WHERE participant_id = $1`, [pid]));
+  assert.ok(asConnector.rows.length >= 1);
+  assert.ok(
+    await errorOf(as(db, w.member, (tx) => tx.query(`INSERT INTO participant_touches (participant_id, church_id, kind, created_by_profile_id) VALUES ($1, $2, 'call', $3)`, [pid, w.grace.id, w.member.id]))),
+    'members cannot write contact logs',
+  );
+  assert.ok(
+    await errorOf(as(db, w.connector, (tx) => tx.query(`INSERT INTO participant_touches (participant_id, church_id, kind, source, created_by_profile_id) VALUES ($1, $2, 'meeting_held', 'system', $3)`, [pid, w.grace.id, w.connector.id]))),
+    'nobody forges a system touch',
+  );
+});
+
+test('lessons: members read published ones meant for them', async () => {
+  const draft = crypto.randomUUID();
+  const forWomen = crypto.randomUUID();
+  await db.query(`INSERT INTO lessons (id, church_id, title, is_published) VALUES ($1, $2, 'Draft lesson', false)`, [draft, w.grace.id]);
+  await db.query(`INSERT INTO lessons (id, church_id, title, audience_group_id) VALUES ($1, $2, 'For the women', $3)`, [forWomen, w.grace.id, w.groups.women]);
+  const titles = async (who: Parameters<typeof as>[1]) =>
+    new Set((await as(db, who, (tx) => tx.query<{ title: string }>(`SELECT title FROM lessons`))).rows.map((r) => r.title));
+  const member = await titles(w.member);
+  assert.ok(member.has('How to host a gathering well'), 'the seeded orientation is there');
+  assert.ok(member.has('For the women'), 'a group lesson reaches its group');
+  assert.ok(!member.has('Draft lesson'), 'drafts stay with staff');
+  assert.ok(!(await titles(w.nonMember)).has('For the women'), 'and only its group');
+  assert.ok((await titles(w.campusAdmin)).has('Draft lesson'));
+  const graceOrientation = (await db.query<{ id: string }>(`SELECT id FROM lessons WHERE church_id = $1 AND purpose = 'host_orientation'`, [w.grace.id])).rows[0].id;
+  const visitorReads = await as(db, w.visitor, (tx) => tx.query(`SELECT id FROM lessons WHERE id = $1`, [graceOrientation]));
+  assert.equal(visitorReads.rows.length, 0, 'another church reads its own copy, never ours');
+
+  assert.ok(
+    await errorOf(as(db, w.member, (tx) => tx.query(`INSERT INTO lesson_completions (lesson_id, profile_id) VALUES ($1, $2)`, [draft, w.member.id]))),
+    'you cannot complete a lesson you cannot read',
+  );
+  assert.ok(
+    await errorOf(as(db, w.member, (tx) => tx.query(`INSERT INTO lesson_completions (lesson_id, profile_id) VALUES ($1, $2)`, [forWomen, w.nonMember.id]))),
+    'or mark one complete for someone else',
+  );
 });

@@ -5,6 +5,8 @@ import { requirePlatformAdmin } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { ConfirmDeleteButton } from '@/components/ui/confirm-delete-button';
 import { updateChurch, deactivateChurch } from '@/lib/church/church-actions';
+import { setChurchVerified } from '@/lib/church/settings-actions';
+import { Button } from '@/components/ui/button';
 import { ChurchForm } from '../church-form';
 import type { Church } from '@/lib/church/types';
 
@@ -24,11 +26,16 @@ export default async function EditChurchPage({
     .maybeSingle();
 
   if (!data) notFound();
-  const church = data as Church;
+  const church = data as Church & { verified_at?: string | null; listed_on_map?: boolean };
+  const verified = Boolean(church.verified_at);
 
   async function update(_prev: unknown, formData: FormData) {
     'use server';
     return updateChurch(id, formData);
+  }
+  async function toggleVerified() {
+    'use server';
+    await setChurchVerified(id, !verified);
   }
   async function destroy() {
     'use server';
@@ -58,6 +65,19 @@ export default async function EditChurchPage({
           />
         )}
       </div>
+
+      <form action={toggleVerified} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4">
+        <div className="text-sm">
+          <p className="font-medium text-foreground">{verified ? 'Verified church' : 'Not verified yet'}</p>
+          <p className="text-xs text-foreground-muted">
+            {church.listed_on_map ? 'They chose to be on the shared map.' : 'They have not chosen to be on the shared map.'}{' '}
+            Only verified churches that chose it get a pin.
+          </p>
+        </div>
+        <Button type="submit" size="md" variant={verified ? 'outline' : 'primary'}>
+          {verified ? 'Remove verification' : 'Verify this church'}
+        </Button>
+      </form>
 
       <ChurchForm
         church={church}

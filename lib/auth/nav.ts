@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { SessionUser } from './dal';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export type NavGroupKey = 'platform' | 'admin' | 'connector' | 'participant';
 
@@ -34,6 +34,7 @@ const JOURNEY_CHILDREN: NavItem[] = [
 
 // "Settings" is itself a dropdown of the remaining admin links (no hub page).
 const SETTINGS_CHILDREN: NavItem[] = [
+  { href: '/settings/church',       label: 'Church' },
   { href: '/settings/serve-teams',  label: 'Serve Teams' },
   { href: '/settings/notifications', label: 'Notifications' },
   { href: '/audit',                 label: 'Audit log' },
@@ -125,6 +126,16 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
   }
 
   if (role === 'participant') {
+    // The journey is optional: a church whose on-ramp is a handshake never
+    // shows its people an empty "My journey".
+    const admin = await createServiceRoleClient();
+    const { data: me } = await admin
+      .from('participants')
+      .select('id, progress:participant_progress(id)')
+      .eq('profile_id', session.id)
+      .limit(1)
+      .maybeSingle();
+    const hasJourney = ((me as { progress: unknown[] | null } | null)?.progress ?? []).length > 0;
     groups.push({
       key: 'participant',
       label: 'Participant',
@@ -135,7 +146,7 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
         ...(connectorRow ? [] : [{ href: '/', label: 'Hub' }]),
         { href: '/groups',  label: 'Groups' },
         { href: '/learn',   label: 'Learn' },
-        { href: '/journey', label: 'My journey' },
+        ...(hasJourney ? [{ href: '/journey', label: 'My journey' }] : []),
       ],
     });
   }

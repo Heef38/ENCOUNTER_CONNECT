@@ -8,6 +8,11 @@ import { cn } from '@/lib/utils';
 import { ParticipantAssignmentForm } from '@/components/participants/assignment-form';
 import { ConfirmDeleteButton } from '@/components/ui/confirm-delete-button';
 import { deleteParticipantAccount } from '@/lib/participants/actions';
+import { ContactHistory } from '@/components/connect/contact-history';
+import { FLAGS, STAGES, getParticipantStage } from '@/lib/connect/pipeline';
+import { getChurchContext } from '@/lib/church/context';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { HostStanding } from './host-standing';
 
 const STATUS_TONES: Record<string, 'info' | 'warning' | 'success' | 'neutral' | 'danger'> = {
   new:         'info',
@@ -114,6 +119,22 @@ export default async function ParticipantDetailPage({
   } | null;
   const campus = participant.campus as { id: string; name: string } | null;
 
+  const [stage, church] = await Promise.all([
+    getParticipantStage(participant.church_id, participant.id),
+    getChurchContext(participant.church_id),
+  ]);
+  const timeZone = church?.timezone ?? 'America/Chicago';
+  let hostStanding: { trusted: boolean; blocked: boolean } | null = null;
+  if (canManage && participant.profile_id) {
+    const admin = await createServiceRoleClient();
+    const { data: prof } = await admin
+      .from('profiles')
+      .select('trusted_host_at, host_blocked_at')
+      .eq('id', participant.profile_id)
+      .maybeSingle();
+    if (prof) hostStanding = { trusted: Boolean(prof.trusted_host_at), blocked: Boolean(prof.host_blocked_at) };
+  }
+
   const completedCount = (progress ?? []).filter((p) => p.status === 'completed').length;
   const totalCount = (progress ?? []).length;
 
@@ -136,9 +157,22 @@ export default async function ParticipantDetailPage({
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <Badge tone={STATUS_TONES[participant.status] ?? 'neutral'}>
-            {participant.status.replace('_', ' ')}
-          </Badge>
+          {stage ? (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              <Badge tone={stage.stage === 'serving' || stage.stage === 'plugged_in' ? 'success' : stage.stage === 'inactive' ? 'neutral' : 'info'}>
+                {STAGES.find((s) => s.key === stage.stage)?.label ?? stage.stage}
+              </Badge>
+              {stage.flags.map((f) => (
+                <Badge key={f} tone={FLAGS[f]?.tone ?? 'neutral'}>
+                  {FLAGS[f]?.label ?? f}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <Badge tone={STATUS_TONES[participant.status] ?? 'neutral'}>
+              {participant.status.replace('_', ' ')}
+            </Badge>
+          )}
           {canDelete && (
             <ConfirmDeleteButton
               action={deleteParticipantAccount.bind(null, participant.id)}
@@ -221,6 +255,15 @@ export default async function ParticipantDetailPage({
             )}
           </div>
 
+          {hostStanding && participant.profile_id && (
+            <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
+                Hosting
+              </h2>
+              <HostStanding profileId={participant.profile_id} trusted={hostStanding.trusted} blocked={hostStanding.blocked} />
+            </div>
+          )}
+
           {participant.notes && (
             <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
@@ -231,7 +274,14 @@ export default async function ParticipantDetailPage({
           )}
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="space-y-6 lg:col-span-2">
+          <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
+            <ContactHistory
+              participantId={participant.id}
+              name={`${participant.first_name} ${participant.last_name}`.trim()}
+              timeZone={timeZone}
+            />
+          </div>
           <div className="rounded-lg border border-border bg-surface shadow-sm">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <h2 className="text-sm font-medium text-foreground">Journey Progress</h2>

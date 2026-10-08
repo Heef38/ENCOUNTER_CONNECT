@@ -21,6 +21,23 @@ function slugify(value: string): string {
     .slice(0, 80);
 }
 
+const PURPOSES = ['general', 'host_orientation', 'connector', 'leader', 'journey'] as const;
+
+/** The Learn fields (migration 034) shared by create and update. */
+function learnFields(formData: FormData) {
+  const purposeRaw = String(formData.get('purpose') ?? 'general');
+  const minutesRaw = String(formData.get('minutes') ?? '').trim();
+  const minutes = minutesRaw ? Math.min(Math.max(parseInt(minutesRaw, 10) || 0, 1), 240) : null;
+  const audience = String(formData.get('audience_group_id') ?? '').trim();
+  return {
+    purpose: (PURPOSES as readonly string[]).includes(purposeRaw) ? purposeRaw : 'general',
+    summary: String(formData.get('summary') ?? '').trim() || null,
+    minutes,
+    audience_group_id: audience || null,
+    in_library: formData.get('in_library') === 'on',
+  };
+}
+
 function parseOrderIndex(raw: FormDataEntryValue | null, fallback = 0): number {
   if (typeof raw !== 'string' || raw.trim() === '') return fallback;
   const n = parseInt(raw, 10);
@@ -53,6 +70,7 @@ export async function createLesson(formData: FormData): Promise<ActionResult> {
       video_url: video_url || null,
       order_index,
       is_published,
+      ...learnFields(formData),
     })
     .select('id')
     .single();
@@ -67,6 +85,7 @@ export async function createLesson(formData: FormData): Promise<ActionResult> {
   });
 
   revalidatePath('/settings/lessons');
+  revalidatePath('/learn');
   return { ok: true, id: data.id };
 }
 
@@ -86,7 +105,7 @@ export async function updateLesson(
   const is_published = formData.get('is_published') === 'on';
 
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from('lessons')
     .update({
       title,
@@ -95,10 +114,13 @@ export async function updateLesson(
       video_url: video_url || null,
       order_index,
       is_published,
+      ...learnFields(formData),
     })
-    .eq('id', id);
+    .eq('id', id)
+    .select('id');
 
   if (error) return { ok: false, error: error.message };
+  if (!saved || saved.length === 0) return { ok: false, error: 'Only an admin of this church can edit it.' };
 
   await recordAudit({
     action: 'lesson.update',

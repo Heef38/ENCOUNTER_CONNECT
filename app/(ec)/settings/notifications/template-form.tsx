@@ -26,6 +26,9 @@ const KNOWN_KEYS = [
   { key: 'connector_availability_reminder',    hint: 'Sent to a connector with no open availability. Vars: {{horizon_days}}.' },
   { key: 'event_cancelled_to_rsvps',           hint: 'Sent to everyone who RSVP\'d going or maybe when a gathering is cancelled. Vars: {{event_title}}, {{event_when}}, {{reason_line}}, {{event_url}}, {{connect_name}}.' },
   { key: 'event_reported_to_admin',            hint: 'Sent to campus and church admins when a gathering is reported. Vars: {{event_title}}, {{event_when}}, {{reporter_name}}, {{report_reason}}, {{hidden_line}}, {{review_url}}.' },
+  { key: 'admin_weekly_digest',                hint: 'The Monday email to admins. Vars: {{headline}}, {{digest_body}}, {{dashboard_url}}, {{connect_name}}.' },
+  { key: 'connector_contact_nudge',            hint: 'Sent to a connector when someone assigned to them has waited too long. Vars: {{participant_name}}, {{days_waiting}}, {{participant_url}}.' },
+  { key: 'admin_contact_escalation',           hint: 'Sent to campus admins when a connector has not acted after the nudge, or nobody is assigned. Vars: {{participant_name}}, {{days_waiting}}, {{escalation_reason}}, {{participant_url}}.' },
   { key: 'event_message_to_host',              hint: 'Relays a member\'s message to a gathering\'s host. Vars: {{sender_name}}, {{sender_email}}, {{message}}, {{event_title}}, {{event_when}}.' },
 ];
 

@@ -26,6 +26,7 @@ import { generateOneOnOneDoc, KIND_LABEL } from '@/lib/connectors/prep-doc';
 import type { FlowStepType } from '@/lib/flows/types';
 import type { AssessmentKind, ComputedScore, AssessmentCategory } from '@/lib/assessments/types';
 import { getChurchContext } from '@/lib/church/context';
+import { ContactHistory } from '@/components/connect/contact-history';
 import { formatDateTimeInZone } from '@/lib/time/zoned';
 
 interface ProgressRow {
@@ -252,6 +253,14 @@ export default async function ConnectorParticipantPage({
           )}
         </div>
       </div>
+
+      {access.canWrite && (
+        <ContactHistory
+          participantId={participant.id}
+          name={`${participant.first_name} ${participant.last_name}`.trim()}
+          timeZone={churchTz}
+        />
+      )}
 
       {meetings.length > 0 && (
         <section className="space-y-3">

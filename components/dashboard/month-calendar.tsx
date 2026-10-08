@@ -26,6 +26,8 @@ interface MonthCalendarProps {
   extraParams?: Record<string, string | undefined>;
   canToggleScope: boolean;
   scope: 'all' | 'mine';
+  /** The church's timezone, so days and times don't follow the server's. */
+  timeZone?: string;
 }
 
 export function MonthCalendar({
@@ -36,6 +38,7 @@ export function MonthCalendar({
   extraParams,
   canToggleScope,
   scope,
+  timeZone,
 }: MonthCalendarProps) {
   const items = useMemo<CalendarItem[]>(
     () =>
@@ -60,6 +63,7 @@ export function MonthCalendar({
       baseHref={baseHref}
       extraParams={extraParams}
       itemNoun={['appointment', 'appointments']}
+      timeZone={timeZone}
       scopeToggle={
         canToggleScope
           ? {

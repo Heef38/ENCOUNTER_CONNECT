@@ -8,31 +8,22 @@ import { Badge } from '@/components/ui/badge';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { ConfirmDeleteButton } from '@/components/ui/confirm-delete-button';
 import { deleteParticipantAccount } from '@/lib/participants/actions';
+import { FLAGS, STAGES, getPipeline, type Flag, type Stage } from '@/lib/connect/pipeline';
 
 const PAGE_SIZE = 25;
 
-const STATUS_OPTIONS: { value: ParticipantStatus | ''; label: string }[] = [
-  { value: '',            label: 'All' },
-  { value: 'new',         label: 'New' },
-  { value: 'in_progress', label: 'In progress' },
-  { value: 'connected',   label: 'Connected' },
-  { value: 'completed',   label: 'Completed' },
-  { value: 'inactive',    label: 'Inactive' },
-];
-
-const STATUS_TONES: Record<
-  string,
-  'neutral' | 'info' | 'warning' | 'success' | 'danger' | 'primary'
-> = {
-  new:         'info',
-  in_progress: 'warning',
-  connected:   'success',
-  completed:   'success',
-  inactive:    'danger',
+const STAGE_TONES: Record<Stage, 'neutral' | 'info' | 'warning' | 'success' | 'danger'> = {
+  new: 'info',
+  contacted: 'warning',
+  met: 'warning',
+  plugged_in: 'success',
+  serving: 'success',
+  inactive: 'neutral',
 };
 
 interface SearchParams {
-  status?: string;
+  stage?: string;
+  flag?: string;
   campus_id?: string;
   page?: string;
 }
@@ -45,6 +36,7 @@ interface Row {
   phone: string | null;
   sms_consent_at: string | null;
   status: ParticipantStatus;
+  last_personal_contact_at: string | null;
   signed_up_at: string | null;
   last_action_at: string | null;
   created_at: string;
@@ -100,10 +92,24 @@ export default async function ParticipantsPage({
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
+  // Stage and flags come from the pipeline rule (migration 034), so this
+  // list, This week and the Monday digest agree about who is where.
+  const churchId = session.profile?.church_id ?? null;
+  const pipeline = churchId ? await getPipeline(churchId) : [];
+  const stageById = new Map(pipeline.map((r) => [r.participant_id, r]));
+  const stageFilter = STAGES.some((s) => s.key === params.stage) ? (params.stage as Stage) : undefined;
+  const flagFilter = params.flag && params.flag in FLAGS ? (params.flag as Flag) : undefined;
+  const filteredIds =
+    stageFilter || flagFilter
+      ? pipeline
+          .filter((r) => (!stageFilter || r.stage === stageFilter) && (!flagFilter || r.flags.includes(flagFilter)))
+          .map((r) => r.participant_id)
+      : null;
+
   let q = supabase
     .from('participants')
     .select(
-      `id, first_name, last_name, email, phone, sms_consent_at, status,
+      `id, first_name, last_name, email, phone, sms_consent_at, status, last_personal_contact_at,
        signed_up_at, last_action_at, created_at, current_step_id,
        campus:campuses(id, name),
        current_step:flow_steps!participants_current_step_id_fkey(id, title, order_index),
@@ -114,7 +120,8 @@ export default async function ParticipantsPage({
     .order('created_at', { ascending: false })
     .range(from, to);
 
-  if (params.status)    q = q.eq('status', params.status);
+  if (churchId) q = q.eq('church_id', churchId);
+  if (filteredIds) q = q.in('id', filteredIds.length > 0 ? filteredIds : ['00000000-0000-0000-0000-000000000000']);
   if (params.campus_id) q = q.eq('campus_id', params.campus_id);
 
   const [listResult, campusesResult] = await Promise.all([
@@ -139,7 +146,7 @@ export default async function ParticipantsPage({
             Participants
           </h1>
           <p className="mt-1 text-sm text-foreground-muted">
-            Everyone moving through the connection journey.
+            Everyone your church is welcoming in, by where they are and what they need next.
           </p>
         </div>
         <Link href="/participants/new">
@@ -151,14 +158,13 @@ export default async function ParticipantsPage({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-1 rounded-md border border-border bg-surface p-1">
-          {STATUS_OPTIONS.map((opt) => {
-            const active =
-              params.status === opt.value || (!params.status && opt.value === '');
+        <div className="flex flex-wrap gap-1 rounded-md border border-border bg-surface p-1">
+          {[{ key: '' as const, label: 'Everyone' }, ...STAGES].map((opt) => {
+            const active = (params.stage ?? '') === opt.key;
             return (
               <Link
-                key={opt.value || 'all'}
-                href={`/participants${qs({ campus_id: params.campus_id, status: opt.value || undefined })}`}
+                key={opt.key || 'all'}
+                href={`/participants${qs({ campus_id: params.campus_id, stage: opt.key || undefined, flag: params.flag })}`}
                 className={
                   'rounded px-2.5 py-1 text-xs font-medium transition-colors ' +
                   (active
@@ -172,10 +178,28 @@ export default async function ParticipantsPage({
           })}
         </div>
 
+        <div className="flex flex-wrap gap-1">
+          {(Object.keys(FLAGS) as Flag[]).map((f) => {
+            const active = params.flag === f;
+            return (
+              <Link
+                key={f}
+                href={`/participants${qs({ campus_id: params.campus_id, stage: params.stage, flag: active ? undefined : f })}`}
+                className={
+                  'rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ' +
+                  (active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-foreground-muted hover:text-foreground')
+                }
+              >
+                {FLAGS[f].label}
+              </Link>
+            );
+          })}
+        </div>
+
         {campuses.length > 0 && (
           <div className="flex gap-1 rounded-md border border-border bg-surface p-1">
             <Link
-              href={`/participants${qs({ status: params.status })}`}
+              href={`/participants${qs({ stage: params.stage, flag: params.flag })}`}
               className={
                 'rounded px-2.5 py-1 text-xs font-medium transition-colors ' +
                 (!params.campus_id
@@ -188,7 +212,7 @@ export default async function ParticipantsPage({
             {campuses.map((c) => (
               <Link
                 key={c.id}
-                href={`/participants${qs({ status: params.status, campus_id: c.id })}`}
+                href={`/participants${qs({ stage: params.stage, flag: params.flag, campus_id: c.id })}`}
                 className={
                   'rounded px-2.5 py-1 text-xs font-medium transition-colors ' +
                   (params.campus_id === c.id
@@ -224,10 +248,9 @@ export default async function ParticipantsPage({
               <TH>Campus</TH>
               <TH>Contact</TH>
               <TH>Signed up</TH>
-              <TH>Last action</TH>
+              <TH>Last reached</TH>
               <TH>Step</TH>
-              <TH>Progress</TH>
-              <TH>Status</TH>
+              <TH>Where they are</TH>
               {canDelete && <TH className="w-10" />}
             </TR>
           </THead>
@@ -270,16 +293,27 @@ export default async function ParticipantsPage({
                     {formatDate(signedUp)}
                   </TD>
                   <TD className="text-foreground-muted">
-                    {formatRelative(p.last_action_at)}
+                    {formatRelative(p.last_personal_contact_at)}
                   </TD>
-                  <TD className="text-foreground-muted">{stepTitle}</TD>
                   <TD className="text-foreground-muted">
-                    {total === 0 ? '—' : `${done} of ${total}`}
+                    {stepTitle}
+                    {total > 0 && <span className="text-foreground-subtle"> · {done}/{total}</span>}
                   </TD>
                   <TD>
-                    <Badge tone={STATUS_TONES[p.status] ?? 'neutral'}>
-                      {p.status.replace('_', ' ')}
-                    </Badge>
+                    {(() => {
+                      const st = stageById.get(p.id);
+                      if (!st) return <span className="text-foreground-subtle">—</span>;
+                      return (
+                        <div className="flex flex-wrap gap-1">
+                          <Badge tone={STAGE_TONES[st.stage]}>{STAGES.find((x) => x.key === st.stage)?.label}</Badge>
+                          {st.flags.map((f) => (
+                            <Badge key={f} tone={FLAGS[f].tone}>
+                              {FLAGS[f].label}
+                            </Badge>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </TD>
                   {canDelete && (
                     <TD>
@@ -305,7 +339,7 @@ export default async function ParticipantsPage({
           <div className="flex gap-2">
             {page > 1 && (
               <Link
-                href={`/participants${qs({ status: params.status, campus_id: params.campus_id, page: String(page - 1) })}`}
+                href={`/participants${qs({ stage: params.stage, flag: params.flag, campus_id: params.campus_id, page: String(page - 1) })}`}
               >
                 <Button variant="outline" size="sm">
                   Previous
@@ -314,7 +348,7 @@ export default async function ParticipantsPage({
             )}
             {page < pageCount && (
               <Link
-                href={`/participants${qs({ status: params.status, campus_id: params.campus_id, page: String(page + 1) })}`}
+                href={`/participants${qs({ stage: params.stage, flag: params.flag, campus_id: params.campus_id, page: String(page + 1) })}`}
               >
                 <Button variant="outline" size="sm">
                   Next

@@ -31,6 +31,7 @@ import type {
   ComputedScore,
 } from '@/lib/assessments/types';
 import { getChurchContext } from '@/lib/church/context';
+import { youTubeId } from '@/lib/learn/video';
 import { formatDateTimeInZone } from '@/lib/time/zoned';
 
 interface ProgressRow {
@@ -65,20 +66,6 @@ interface ProgressRow {
  * Extracts a YouTube video id from watch / youtu.be / embed URLs.
  * Returns null for anything we don't recognize as YouTube.
  */
-function youTubeId(url: string | null): string | null {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    if (u.hostname === 'youtu.be') return u.pathname.slice(1) || null;
-    if (u.hostname === 'www.youtube.com' || u.hostname === 'youtube.com') {
-      if (u.pathname === '/watch') return u.searchParams.get('v');
-      if (u.pathname.startsWith('/embed/')) return u.pathname.split('/embed/')[1] || null;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
 
 export default async function JourneyStepPage({
   params,

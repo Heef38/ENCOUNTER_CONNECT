@@ -110,6 +110,34 @@ const DEFAULT_TEMPLATES: Record<
       'Reply to them directly at {{sender_email}}.\n\n' +
       '— {{connect_name}}',
   },
+  admin_weekly_digest: {
+    channel: 'email',
+    subject: 'This week at {{connect_name}}: {{headline}}',
+    body:
+      'Hi {{recipient_first_name}},\n\n' +
+      '{{digest_body}}\n\n' +
+      'Open This week: {{dashboard_url}}\n\n' +
+      '— {{connect_name}}',
+  },
+  connector_contact_nudge: {
+    channel: 'email',
+    subject: '{{participant_name}} is waiting to hear from you',
+    body:
+      'Hi {{recipient_first_name}},\n\n' +
+      '{{participant_name}} signed up {{days_waiting}} days ago and nobody has reached out yet. ' +
+      'A short text or call is enough: "I\'m glad you came. Can I buy you a coffee?"\n\n' +
+      'When you do, log it with one tap: {{participant_url}}\n\n' +
+      '— {{connect_name}}',
+  },
+  admin_contact_escalation: {
+    channel: 'email',
+    subject: '{{participant_name}} still hasn\'t been contacted',
+    body:
+      'Hi {{recipient_first_name}},\n\n' +
+      '{{participant_name}} signed up {{days_waiting}} days ago and nobody has reached out yet. {{escalation_reason}}\n\n' +
+      'See them here: {{participant_url}}\n\n' +
+      '— {{connect_name}}',
+  },
   connector_availability_reminder: {
     channel: 'email',
     subject: 'Add your availability so people can book with you',

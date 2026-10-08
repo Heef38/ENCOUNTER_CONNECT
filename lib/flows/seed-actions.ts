@@ -133,6 +133,78 @@ export async function seedEncounterConnectFlow(): Promise<SeedResult> {
 }
 
 /**
+ * "Simple next steps": for a church whose on-ramp is a lunch and a
+ * conversation rather than a video journey.
+ *
+ *   1. Come to a newcomers lunch, or any gathering (marked when they've been)
+ *   2. Meet with a connector (auto-matched against real availability)
+ */
+export async function seedSimpleNextStepsFlow(): Promise<SeedResult> {
+  const session = await requireCampusAdmin();
+  const churchId = session.profile?.church_id;
+  if (!churchId) return { ok: false, error: 'No church context.' };
+  const supabase = await createServerSupabaseClient();
+
+  const { data: apptType } = await supabase
+    .from('scheduling_appointment_types')
+    .select('id')
+    .eq('is_active', true)
+    .eq('church_id', churchId)
+    .ilike('name', '%connect%')
+    .limit(1)
+    .maybeSingle();
+
+  const flowResult = await createFlow(supabase, {
+    name: 'Simple next steps',
+    description: 'Come to a gathering, then meet a connector.',
+    is_default: false,
+    church_id: churchId,
+  });
+  if (!flowResult.success) return { ok: false, error: flowResult.error };
+  const flow = flowResult.data;
+
+  const steps: Array<Parameters<typeof createFlowStep>[1]> = [
+    {
+      flow_id: flow.id,
+      title: 'Come to a newcomers lunch',
+      description: 'Pick any gathering on the hub. Mark this step once you’ve been.',
+      step_type: 'event',
+      order_index: 0,
+      trigger_kind: 'signup',
+      output_kind: 'advance',
+      is_required: true,
+    },
+    {
+      flow_id: flow.id,
+      title: 'Meet with a connector',
+      description: 'Pick a time and we’ll match you with whoever is free.',
+      step_type: 'schedule',
+      appointment_type_id: apptType?.id,
+      order_index: 1,
+      trigger_kind: 'previous_complete',
+      output_kind: 'auto_match_connector',
+      is_required: true,
+    },
+  ];
+  for (const step of steps) {
+    const result = await createFlowStep(supabase, step);
+    if (!result.success) return { ok: false, error: `Step "${step.title}" failed: ${result.error}`, id: flow.id };
+  }
+
+  await recordAudit({ action: 'flow.seed_default', entity_type: 'flow', entity_id: flow.id, metadata: { template: 'simple_next_steps' } });
+  revalidatePath('/flows');
+  return { ok: true, id: flow.id };
+}
+
+export async function seedAndOpenSimpleNextStepsFlow() {
+  const result = await seedSimpleNextStepsFlow();
+  if (!result.ok || !result.id) {
+    redirect(`/flows/new?error=${encodeURIComponent(result.error ?? 'Seed failed')}`);
+  }
+  redirect(`/flows/${result.id}`);
+}
+
+/**
  * Server-action wrapper for the "Use template" button on /flows/new.
  * Seeds the flow, then redirects to its editor.
  */

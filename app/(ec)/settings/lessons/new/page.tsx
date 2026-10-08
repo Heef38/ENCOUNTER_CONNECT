@@ -3,9 +3,11 @@ import { ChevronLeft } from 'lucide-react';
 import { requireCampusAdmin } from '@/lib/auth/dal';
 import { createLesson } from '@/lib/lessons/actions';
 import { LessonForm } from '../lesson-form';
+import { listGroups } from '@/lib/groups/queries';
 
 export default async function NewLessonPage() {
-  await requireCampusAdmin();
+  const session = await requireCampusAdmin();
+  const groups = session.profile?.church_id ? await listGroups(session.profile.church_id) : [];
 
   async function action(_prev: unknown, formData: FormData) {
     'use server';
@@ -28,6 +30,7 @@ export default async function NewLessonPage() {
       </div>
 
       <LessonForm
+        groups={groups.map((g) => ({ id: g.id, name: g.name }))}
         action={action}
         submitLabel="Create lesson"
         redirectOnSuccess="/settings/lessons"

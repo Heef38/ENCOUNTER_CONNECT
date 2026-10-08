@@ -17,7 +17,10 @@ export type NotificationTemplateKey =
   | 'connector_availability_reminder'
   | 'event_cancelled_to_rsvps'
   | 'event_reported_to_admin'
-  | 'event_message_to_host';
+  | 'event_message_to_host'
+  | 'admin_weekly_digest'
+  | 'connector_contact_nudge'
+  | 'admin_contact_escalation';
 
 export interface NotificationTemplate {
   id: string;

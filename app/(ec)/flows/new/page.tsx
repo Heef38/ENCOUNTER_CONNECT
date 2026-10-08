@@ -3,7 +3,7 @@ import { ChevronLeft, Sparkles } from 'lucide-react';
 import { requireStaff } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { NewFlowForm } from '@/components/flows/new-flow-form';
-import { seedAndOpenEncounterConnectFlow } from '@/lib/flows/seed-actions';
+import { seedAndOpenEncounterConnectFlow, seedAndOpenSimpleNextStepsFlow } from '@/lib/flows/seed-actions';
 import { Button } from '@/components/ui/button';
 
 export default async function NewFlowPage({
@@ -56,8 +56,8 @@ export default async function NewFlowPage({
                 Use Encounter&apos;s video journey
               </p>
               <p className="mt-1 text-xs text-foreground-muted">
-                Pre-built 5-step journey: welcome videos → personal assessment →
-                connect with god → spiritual gifts → first meeting (auto-matched
+                Encounter&apos;s 5-step journey: welcome videos → personal assessment →
+                connect with God → spiritual gifts → first meeting (auto-matched
                 connector).
               </p>
               <Button type="submit" size="sm" className="mt-3">
@@ -65,6 +65,18 @@ export default async function NewFlowPage({
               </Button>
             </div>
           </div>
+        </div>
+      </form>
+
+      <form action={seedAndOpenSimpleNextStepsFlow}>
+        <div className="rounded-lg border border-dashed border-border p-4">
+          <p className="text-sm font-semibold text-foreground">Simple next steps</p>
+          <p className="mt-1 text-xs text-foreground-muted">
+            Two steps for a church whose on-ramp is a lunch and a conversation: come to a gathering, then meet a connector.
+          </p>
+          <Button type="submit" size="sm" variant="outline" className="mt-3">
+            Use template
+          </Button>
         </div>
       </form>
 
