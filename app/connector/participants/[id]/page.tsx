@@ -25,6 +25,8 @@ import { BookingDecision } from './booking-decision';
 import { generateOneOnOneDoc, KIND_LABEL } from '@/lib/connectors/prep-doc';
 import type { FlowStepType } from '@/lib/flows/types';
 import type { AssessmentKind, ComputedScore, AssessmentCategory } from '@/lib/assessments/types';
+import { getChurchContext } from '@/lib/church/context';
+import { formatDateTimeInZone } from '@/lib/time/zoned';
 
 interface ProgressRow {
   id: string;
@@ -61,8 +63,11 @@ export default async function ConnectorParticipantPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { connectorId } = await requireConnector();
+  const { connectorId, session } = await requireConnector();
   const { id } = await params;
+  const churchTz = session.profile?.church_id
+    ? (await getChurchContext(session.profile.church_id))?.timezone ?? 'America/Chicago'
+    : 'America/Chicago';
   const supabase = await createServerSupabaseClient();
 
   const access = await getConnectorParticipantAccess(supabase, connectorId, id);
@@ -272,7 +277,7 @@ export default async function ConnectorParticipantPage({
               >
                 <p className="font-medium text-foreground">Awaiting confirmation</p>
                 <p className="text-foreground-muted">
-                  {new Date(b.starts_at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+                  {formatDateTimeInZone(b.starts_at, churchTz)}
                 </p>
               </div>
             ),
@@ -292,7 +297,7 @@ export default async function ConnectorParticipantPage({
                   <div>
                     <p className="font-medium text-foreground">Scheduled meeting</p>
                     <p className="mt-0.5 text-sm text-foreground-muted">
-                      {new Date(b.starts_at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+                      {formatDateTimeInZone(b.starts_at, churchTz)}
                     </p>
                   </div>
                 </div>
@@ -319,7 +324,7 @@ export default async function ConnectorParticipantPage({
                   <div>
                     <p className="font-medium text-foreground">Meeting completed</p>
                     <p className="mt-0.5 text-sm text-foreground-muted">
-                      {new Date(b.starts_at).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+                      {formatDateTimeInZone(b.starts_at, churchTz)}
                     </p>
                   </div>
                 </div>

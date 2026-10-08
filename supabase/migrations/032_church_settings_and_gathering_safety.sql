@@ -30,6 +30,8 @@ CREATE UNIQUE INDEX idx_churches_connect_name
   ON churches (lower(connect_name)) WHERE connect_name IS NOT NULL;
 
 UPDATE churches SET connect_name = 'Encounter Connect' WHERE slug = 'encounter';
+-- Encounter keeps the logo the app has always shown in its nav.
+UPDATE churches SET logo_url = '/EC.png' WHERE slug = 'encounter' AND logo_url IS NULL;
 
 -- ── Listing on the shared map ────────────────────────────────
 -- A church appears to people outside it (as a pin on the map, and its

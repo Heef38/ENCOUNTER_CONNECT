@@ -121,8 +121,7 @@ export default async function AppointmentTypesSettingsPage() {
       )}
 
       <p className="text-xs text-foreground-subtle">
-        Note: appointment types are shared across all churches that share this scheduling
-        instance. If your deployment serves multiple churches, color changes apply globally.
+        These are your church&apos;s appointment types. Other churches never see them.
       </p>
     </div>
   );

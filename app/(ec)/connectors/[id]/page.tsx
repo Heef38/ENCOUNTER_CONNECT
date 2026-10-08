@@ -6,6 +6,8 @@ import { getConnector } from '@/lib/connectors/services';
 import { requireStaff } from '@/lib/auth/dal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { getChurchContext } from '@/lib/church/context';
+import { formatDateInZone, formatTimeInZone } from '@/lib/time/zoned';
 
 const STATUS_TONES: Record<string, 'info' | 'warning' | 'success' | 'neutral' | 'danger'> = {
   new:         'info',
@@ -21,6 +23,9 @@ export default async function ConnectorDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const session = await requireStaff();
+  const churchTz = session.profile?.church_id
+    ? (await getChurchContext(session.profile.church_id))?.timezone ?? 'America/Chicago'
+    : 'America/Chicago';
   const { id } = await params;
   const supabase = await createServerSupabaseClient();
 
@@ -153,16 +158,8 @@ export default async function ConnectorDetailPage({
                 return (
                   <div key={b.id} className="px-5 py-3">
                     <p className="text-sm font-medium text-foreground">
-                      {new Date(b.starts_at).toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                      })}{' '}
-                      at{' '}
-                      {new Date(b.starts_at).toLocaleTimeString(undefined, {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
+                      {formatDateInZone(b.starts_at, churchTz, { weekday: 'short', month: 'short', day: 'numeric' })} at{' '}
+                      {formatTimeInZone(b.starts_at, churchTz)}
                     </p>
                     {primary && (
                       <p className="text-xs text-foreground-muted">{primary.display_name}</p>

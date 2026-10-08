@@ -20,6 +20,7 @@ import {
   getMyPlate,
   getRecentActivity,
 } from '@/lib/dashboard/queries';
+import { getChurchContext } from '@/lib/church/context';
 
 interface SearchParams {
   month?: string;
@@ -48,6 +49,9 @@ export default async function DashboardPage({
   searchParams: Promise<SearchParams>;
 }) {
   const session = await requireStaff();
+  const churchTz = session.profile?.church_id
+    ? (await getChurchContext(session.profile.church_id))?.timezone ?? 'America/Chicago'
+    : 'America/Chicago';
   const params = await searchParams;
   const ctx = await getDashboardContext(session);
 
@@ -149,7 +153,7 @@ export default async function DashboardPage({
       )}
 
       {view === 'list' ? (
-        <UpcomingAppointmentsList events={events} />
+        <UpcomingAppointmentsList events={events} timeZone={churchTz} />
       ) : (
         <MonthCalendar
           year={year}
@@ -162,7 +166,7 @@ export default async function DashboardPage({
         />
       )}
 
-      {ctx.isConnector && <Plate items={plate} />}
+      {ctx.isConnector && <Plate items={plate} timeZone={churchTz} />}
 
       {ctx.isAdmin && <ConnectorLoad rows={connectorLoad} />}
 

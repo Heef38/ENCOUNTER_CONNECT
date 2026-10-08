@@ -4,10 +4,10 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Terms & Conditions',
-  description: 'The terms that govern your use of Encounter Connect.',
+  description: 'The terms that govern your use of ChurchConnect.',
 };
 
-const EFFECTIVE_DATE = 'May 27, 2026';
+const EFFECTIVE_DATE = 'October 8, 2026';
 const CONTACT_EMAIL = 'dev@encounterthelord.com';
 const SITE_URL = 'https://encounter-connect.app';
 const GOVERNING_LAW = 'the State of Texas';
@@ -44,8 +44,8 @@ export default function TermsPage() {
       <Section title="1. Acceptance of These Terms">
         <p>
           These Terms &amp; Conditions (&ldquo;Terms&rdquo;) govern your access to and
-          use of Encounter Connect (the &ldquo;Service&rdquo;), available at{' '}
-          {SITE_URL}, operated by Encounter Connect (&ldquo;we,&rdquo;
+          use of ChurchConnect (the &ldquo;Service&rdquo;), available at{' '}
+          {SITE_URL}, operated by ChurchConnect (&ldquo;we,&rdquo;
           &ldquo;us,&rdquo; or &ldquo;our&rdquo;). By creating an account or using the
           Service, you agree to these Terms and to our{' '}
           <Link href="/privacy" className="text-primary hover:underline">
@@ -57,10 +57,12 @@ export default function TermsPage() {
 
       <Section title="2. The Service">
         <p>
-          Encounter Connect is a platform that churches use to help people connect to
-          community and take next steps — including guided journeys, assessments,
-          scheduling meetings with a connector, and related communications. Your
-          church configures much of how the Service works for you.
+          ChurchConnect is a platform that churches use, each under its own name such
+          as &ldquo;Encounter Connect,&rdquo; to help people connect to community and
+          take next steps — including gatherings and groups, guided journeys,
+          assessments, scheduling meetings with a connector, and related
+          communications. Your church configures much of how the Service works for
+          you.
         </p>
       </Section>
 
@@ -77,7 +79,9 @@ export default function TermsPage() {
       <Section title="4. Text Messaging Program">
         <p>
           By providing your mobile phone number and opting in, you consent to receive
-          recurring transactional text messages from Encounter Connect related to your
+          recurring transactional text messages from your church&rsquo;s connect
+          ministry through the Service (for example, &ldquo;Encounter Connect&rdquo;)
+          related to your
           participation, such as appointment confirmations and reminders, next-step
           prompts, and messages from your assigned connector.
         </p>
@@ -122,10 +126,34 @@ export default function TermsPage() {
         </ul>
       </Section>
 
+      <Section title="5a. Gatherings and Hosting">
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            If you host a gathering, you are responsible for what you post about it
+            and for keeping its details accurate. Do not put phone numbers, home
+            addresses, or anything private in a title or description.
+          </li>
+          <li>
+            Choosing &ldquo;public&rdquo; makes a gathering visible to anyone,
+            including people outside your church and search engines. Your church may
+            not allow public gatherings at homes.
+          </li>
+          <li>
+            Your church can review, edit, cancel, or remove gatherings and can stop
+            someone from hosting. Reports go to your church&rsquo;s admins.
+          </li>
+          <li>
+            Gatherings that include minors must follow your church&rsquo;s
+            safeguarding rules. The Service keeps youth gatherings private and
+            requires a staff host.
+          </li>
+        </ul>
+      </Section>
+
       <Section title="6. Intellectual Property">
         <p>
           The Service, including its software, design, and content we provide, is
-          owned by Encounter Connect or its licensors and is protected by applicable
+          owned by ChurchConnect or its licensors and is protected by applicable
           laws. We grant you a limited, non-exclusive, non-transferable right to use
           the Service for its intended purpose. Content you submit remains yours; you
           grant us the rights needed to operate the Service.
@@ -153,7 +181,7 @@ export default function TermsPage() {
 
       <Section title="9. Limitation of Liability">
         <p>
-          To the fullest extent permitted by law, Encounter Connect and its operators
+          To the fullest extent permitted by law, ChurchConnect and its operators
           will not be liable for any indirect, incidental, special, consequential, or
           punitive damages, or for any loss of data, arising out of or relating to
           your use of the Service. Our total liability for any claim relating to the
@@ -164,7 +192,7 @@ export default function TermsPage() {
 
       <Section title="10. Indemnification">
         <p>
-          You agree to indemnify and hold harmless Encounter Connect from any claims,
+          You agree to indemnify and hold harmless ChurchConnect from any claims,
           losses, or expenses arising out of your use of the Service or your violation
           of these Terms.
         </p>

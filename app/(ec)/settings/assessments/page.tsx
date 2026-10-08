@@ -69,7 +69,7 @@ export default async function AssessmentsSettingsPage() {
           Assessments
         </h1>
         <p className="mt-1 text-sm text-foreground-muted">
-          Three assessment types ship with Encounter Connect. Customize the questions, scoring,
+          Three assessment types ship with ChurchConnect. Customize the questions, scoring,
           and active status for each.
         </p>
       </div>

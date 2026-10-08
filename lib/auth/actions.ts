@@ -34,7 +34,6 @@ export async function signInAction(
 
   // Determine landing path: pure profile lookup wouldn't see connector
   // membership, so route through landingForSession which factors in
-  // connectors row + multi-platform users → /landing picker.
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')

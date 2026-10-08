@@ -70,7 +70,7 @@ export default async function JourneyLayout({ children }: { children: ReactNode 
                 <img src={church.logo_url} alt={church.name} className="h-8 w-auto" />
               ) : (
                 <span className="truncate font-display text-base font-semibold text-foreground">
-                  {church?.name ?? 'Encounter Connect'}
+                  {church?.name ?? 'ChurchConnect'}
                 </span>
               )}
             </div>

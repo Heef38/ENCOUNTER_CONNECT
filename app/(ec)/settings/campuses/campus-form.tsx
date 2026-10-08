@@ -72,12 +72,12 @@ export function CampusForm({
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="location">Location / address</Label>
+            <Label htmlFor="location">Short location note (optional)</Label>
             <Input
               id="location"
               name="location"
               defaultValue={campus?.location ?? ''}
-              placeholder="123 Main St"
+              placeholder="Downtown, next to the library"
             />
           </div>
           <div className="space-y-1.5">
@@ -108,6 +108,58 @@ export function CampusForm({
             <Label htmlFor="is_active" className="cursor-pointer">Active</Label>
           </div>
         </div>
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="font-display text-base font-semibold text-foreground">Address and map pin</h2>
+          <p className="text-xs text-foreground-subtle">
+            The campus pin anchors your church on the map. Gatherings at the church, and every home gathering, show at
+            this pin. A church building&apos;s address is public, so saving looks it up on OpenStreetMap; type exact
+            coordinates instead if the pin lands in the wrong place.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="address_line1">Street address</Label>
+          <Input id="address_line1" name="address_line1" defaultValue={campus?.address_line1 ?? ''} autoComplete="street-address" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="city">City</Label>
+            <Input id="city" name="city" defaultValue={campus?.city ?? ''} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="region">State</Label>
+            <Input id="region" name="region" defaultValue={campus?.region ?? ''} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="postal_code">ZIP</Label>
+            <Input id="postal_code" name="postal_code" defaultValue={campus?.postal_code ?? ''} />
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="lat">Latitude (optional)</Label>
+            <Input id="lat" name="lat" inputMode="decimal" defaultValue={campus?.lat ?? ''} placeholder="Found automatically" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="lng">Longitude (optional)</Label>
+            <Input id="lng" name="lng" inputMode="decimal" defaultValue={campus?.lng ?? ''} placeholder="Found automatically" />
+          </div>
+        </div>
+        {campus?.lat != null && campus?.lng != null && (
+          <p className="text-xs text-foreground-muted">
+            Pinned at {campus.lat}, {campus.lng}.{' '}
+            <a
+              className="font-medium text-primary hover:underline"
+              href={`https://www.openstreetmap.org/?mlat=${campus.lat}&mlon=${campus.lng}#map=17/${campus.lat}/${campus.lng}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Check it on a map
+            </a>
+          </p>
+        )}
       </section>
 
       <section className="space-y-4">

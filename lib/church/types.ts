@@ -21,6 +21,10 @@ export interface Church {
   logo_url: string | null;
   brand_color: string | null;
   description: string | null;
+  /** The church's own name for its connect ministry (migration 032). */
+  connect_name: string | null;
+  listed_on_map: boolean;
+  verified_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -59,6 +63,16 @@ export interface Campus {
   body: string | null;
   brand_color: string | null;
   accent_color: string | null;
+  /** Structured address and pin (migration 033). */
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  region: string | null;
+  postal_code: string | null;
+  country: string;
+  lat: number | null;
+  lng: number | null;
+  geocoded_at: string | null;
   created_at: string;
   updated_at: string;
 }

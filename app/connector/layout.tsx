@@ -1,6 +1,7 @@
 import { requireConnector } from '@/lib/auth/dal';
 import { buildNavGroups, defaultHomeFromGroups } from '@/lib/auth/nav';
 import { ECNav } from '@/components/layout/ec-nav';
+import { brandForSession } from '@/lib/brand-server';
 
 export default async function ConnectorLayout({
   children,
@@ -19,7 +20,7 @@ export default async function ConnectorLayout({
 
   return (
     <>
-      <ECNav groups={groups} userLabel={userLabel} homeHref={homeHref} />
+      <ECNav groups={groups} userLabel={userLabel} homeHref={homeHref} brand={await brandForSession(session)} />
       <main className="mx-auto w-full max-w-5xl px-4 py-6">{children}</main>
     </>
   );

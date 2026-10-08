@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { getSession, type SessionUser } from '@/lib/auth/dal';
 import { buildNavGroups } from '@/lib/auth/nav';
 import { ECNav } from '@/components/layout/ec-nav';
+import { brandForSession } from '@/lib/brand-server';
 import { LoginForm } from '@/components/auth/login-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -114,7 +115,7 @@ async function SignedInHub({ session, params }: { session: SessionUser; params: 
   if (!church) {
     return (
       <div className="min-h-screen bg-background">
-        <ECNav groups={navGroups} userLabel={userLabel} homeHref="/" />
+        <ECNav groups={navGroups} userLabel={userLabel} homeHref="/" brand={await brandForSession(session)} />
         <main className="mx-auto w-full max-w-3xl px-6 py-12">
           <h1 className="font-display text-2xl font-semibold text-foreground">You&apos;re not attached to a church yet</h1>
           <p className="mt-2 text-sm text-foreground-muted">
@@ -152,7 +153,7 @@ async function SignedInHub({ session, params }: { session: SessionUser; params: 
 
   return (
     <div className="min-h-screen bg-background">
-      <ECNav groups={navGroups} userLabel={userLabel} homeHref="/" />
+      <ECNav groups={navGroups} userLabel={userLabel} homeHref="/" brand={await brandForSession(session)} />
       <main className="mx-auto w-full max-w-5xl px-6 py-8">
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>

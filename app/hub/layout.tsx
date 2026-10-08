@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { getSession } from '@/lib/auth/dal';
 import { buildNavGroups } from '@/lib/auth/nav';
 import { ECNav } from '@/components/layout/ec-nav';
+import { brandForSession } from '@/lib/brand-server';
 
 /**
  * Hub layout. Deliberately does NOT require auth: an anonymous visitor can open
@@ -20,7 +21,7 @@ export default async function HubLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
-      <ECNav groups={groups} userLabel={userLabel} homeHref="/" />
+      <ECNav groups={groups} userLabel={userLabel} homeHref="/" brand={await brandForSession(session)} />
       <main className="mx-auto max-w-3xl px-6 py-8">{children}</main>
     </div>
   );

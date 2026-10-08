@@ -1,6 +1,6 @@
 import { requirePlatformAdmin } from '@/lib/auth/dal';
 import { getTestChurchStatus } from '@/lib/testing/test-data';
-import { TEST_PASSWORD, TEST_USERS } from '@/lib/testing/test-users';
+import { TEST_PASSWORD_ENV, TEST_USERS } from '@/lib/testing/test-users';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
@@ -53,12 +53,12 @@ export default async function PlatformTestDataPage() {
         <CardHeader>
           <CardTitle>Test logins</CardTitle>
           <CardDescription>
-            Every test user has the password{' '}
+            Every test user signs in with the password set in the{' '}
             <code className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
-              {TEST_PASSWORD}
-            </code>
-            . Sign out, then sign in as any of these to see the product from
-            that role&rsquo;s perspective.
+              {TEST_PASSWORD_ENV}
+            </code>{' '}
+            environment variable. Sign out, then sign in as any of these to see
+            the product from that role&rsquo;s perspective.
           </CardDescription>
         </CardHeader>
         <CardContent>

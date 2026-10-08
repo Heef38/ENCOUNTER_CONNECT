@@ -116,8 +116,27 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
     return { ok: false, error: 'Sign-up did not return a user. Please try again.' };
   }
 
+  // Never re-home or downgrade an existing account. With email confirmation
+  // on, signUp hands back an existing unconfirmed user; upserting would move
+  // them to this church and overwrite their role.
+  const { data: existingProfile } = await admin
+    .from('profiles')
+    .select('id, church_id, role, is_platform_admin')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (existingProfile) {
+    const sameChurchMember =
+      existingProfile.church_id === args.churchId && existingProfile.role === 'participant' && !existingProfile.is_platform_admin;
+    return {
+      ok: false,
+      error: sameChurchMember
+        ? 'You already have an account here. Sign in instead.'
+        : 'That email already has an account. Sign in instead, or use a different email.',
+    };
+  }
+
   // Create profile row (service-role: bypasses RLS).
-  const { error: profileError } = await admin.from('profiles').upsert(
+  const { error: profileError } = await admin.from('profiles').insert(
     {
       id: user.id,
       role: 'participant',
@@ -128,7 +147,6 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
       last_name: lastName,
       email,
     },
-    { onConflict: 'id' },
   );
 
   if (profileError) {

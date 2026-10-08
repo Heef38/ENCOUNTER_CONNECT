@@ -8,7 +8,12 @@
 export const TEST_CHURCH_SLUG = 'test-church';
 export const TEST_CAMPUS_SLUG = 'test-campus';
 export const TEST_EMAIL_DOMAIN = 'test.local';
-export const TEST_PASSWORD = 'Test1234!';
+/**
+ * Test accounts sign in with the password in TEST_USER_PASSWORD (at least
+ * 12 characters). It is never hardcoded or shown on screen: the test church
+ * lives in the production database.
+ */
+export const TEST_PASSWORD_ENV = 'TEST_USER_PASSWORD';
 
 export interface TestUserSpec {
   key:

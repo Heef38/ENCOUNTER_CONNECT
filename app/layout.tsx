@@ -22,8 +22,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Encounter Connect',
-    template: '%s · Encounter Connect',
+    default: 'ChurchConnect',
+    template: '%s · ChurchConnect',
   },
   description:
     'Church connection platform — connect people to God, community, and next steps.',

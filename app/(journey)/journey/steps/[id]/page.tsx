@@ -30,6 +30,8 @@ import type {
   AssessmentKind,
   ComputedScore,
 } from '@/lib/assessments/types';
+import { getChurchContext } from '@/lib/church/context';
+import { formatDateTimeInZone } from '@/lib/time/zoned';
 
 interface ProgressRow {
   id: string;
@@ -101,6 +103,7 @@ export default async function JourneyStepPage({
     .maybeSingle();
 
   const progress = data as unknown as ProgressRow | null;
+  const churchTz = progress ? (await getChurchContext(progress.participant.church_id))?.timezone ?? 'America/Chicago' : 'America/Chicago';
   if (!progress || progress.participant.profile_id !== session.id) {
     notFound();
   }
@@ -277,10 +280,7 @@ export default async function JourneyStepPage({
                   <div>
                     <p className="font-medium text-foreground">Your meeting is scheduled</p>
                     <p className="mt-0.5 text-sm text-foreground-muted">
-                      {new Date(booking.starts_at).toLocaleString(undefined, {
-                        dateStyle: 'full',
-                        timeStyle: 'short',
-                      })}
+                      {formatDateTimeInZone(booking.starts_at, churchTz)}
                     </p>
                   </div>
                 </div>

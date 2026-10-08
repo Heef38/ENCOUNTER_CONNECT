@@ -23,13 +23,21 @@ export interface NavGroupRender {
   items: NavItem[];
 }
 
+export interface NavBrand {
+  /** The church's connect name, e.g. "Encounter Connect". */
+  name: string;
+  logoUrl: string | null;
+}
+
 interface Props {
   groups: NavGroupRender[];
   userLabel: string | null;
   homeHref: string;
+  /** The viewer's church; the platform wordmark when absent. */
+  brand?: NavBrand | null;
 }
 
-export function ECNav({ groups, userLabel, homeHref }: Props) {
+export function ECNav({ groups, userLabel, homeHref, brand }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -47,11 +55,18 @@ export function ECNav({ groups, userLabel, homeHref }: Props) {
           </Button>
           <Link
             href={homeHref}
-            aria-label="Encounter Connect — home"
+            aria-label={`${brand?.name ?? 'ChurchConnect'} — home`}
             className="block flex-none"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/EC.png" alt="Encounter Connect" className="h-7 w-auto" />
+            {brand?.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={brand.logoUrl} alt={brand.name} className="h-7 w-auto" />
+            ) : (
+              <span className="flex flex-col leading-tight">
+                <span className="font-display text-base font-semibold text-foreground">{brand?.name ?? 'ChurchConnect'}</span>
+                {brand && <span className="text-[10px] text-foreground-subtle">through ChurchConnect</span>}
+              </span>
+            )}
           </Link>
         </div>
 

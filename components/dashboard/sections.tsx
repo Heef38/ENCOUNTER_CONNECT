@@ -12,6 +12,7 @@ import type {
   NeedsAttention,
   PlateItem,
 } from '@/lib/dashboard/queries';
+import { formatShortDateTimeInZone } from '@/lib/time/zoned';
 
 function formatRelative(iso: string | null): string {
   if (!iso) return '—';
@@ -25,7 +26,8 @@ function formatRelative(iso: string | null): string {
   return new Date(iso).toLocaleDateString();
 }
 
-function formatWhen(iso: string): string {
+function formatWhen(iso: string, timeZone?: string): string {
+  if (timeZone) return formatShortDateTimeInZone(iso, timeZone);
   const d = new Date(iso);
   return d.toLocaleString(undefined, {
     month: 'short',
@@ -102,7 +104,7 @@ function PillCard({
 
 // ── Plate (connector's queue) ───────────────────────────────────
 
-export function Plate({ items }: { items: PlateItem[] }) {
+export function Plate({ items, timeZone }: { items: PlateItem[]; timeZone?: string }) {
   return (
     <section className="rounded-lg border border-border bg-surface shadow-sm">
       <header className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -137,7 +139,7 @@ export function Plate({ items }: { items: PlateItem[] }) {
                   {item.bookingStartsAt ? (
                     <div className="flex items-center gap-1 text-info">
                       <Calendar className="h-3 w-3" />
-                      {formatWhen(item.bookingStartsAt)}
+                      {formatWhen(item.bookingStartsAt, timeZone)}
                     </div>
                   ) : (
                     <div className="flex items-center gap-1 text-foreground-subtle">
@@ -157,7 +159,7 @@ export function Plate({ items }: { items: PlateItem[] }) {
 
 // ── Needs attention (admin) ─────────────────────────────────────
 
-export function UpcomingAppointmentsList({ events }: { events: CalendarEvent[] }) {
+export function UpcomingAppointmentsList({ events, timeZone }: { events: CalendarEvent[]; timeZone?: string }) {
   return (
     <section className="rounded-lg border border-border bg-surface shadow-sm">
       <div className="border-b border-border px-5 py-3">
@@ -177,7 +179,7 @@ export function UpcomingAppointmentsList({ events }: { events: CalendarEvent[] }
                   {e.participantName ? ` · ${e.participantName}` : ''}
                 </p>
                 <p className="truncate text-xs text-foreground-muted">
-                  {formatWhen(e.starts_at)}
+                  {formatWhen(e.starts_at, timeZone)}
                   {e.location ? ` · ${e.location}` : ''}
                 </p>
               </div>

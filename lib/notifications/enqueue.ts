@@ -8,6 +8,8 @@ import type {
 } from './types';
 import { getNotificationSettings, type NotificationSettings } from './settings';
 import { getActiveTeamsForConnectors } from '@/lib/connector-teams/queries';
+import { connectName, PLATFORM_NAME } from '@/lib/brand';
+import { formatDateInZone, formatTimeInZone, isValidTimeZone } from '@/lib/time/zoned';
 
 /**
  * Hardcoded fallback templates used when a church hasn't customized the
@@ -24,8 +26,8 @@ const DEFAULT_TEMPLATES: Record<
     body:
       'Hi {{recipient_first_name}},\n\n' +
       '{{participant_name}} just completed the step "{{step_title}}" on their journey.\n' +
-      "They're ready for the next step. Open Encounter Connect to follow up.\n\n" +
-      '— Encounter Connect',
+      "They're ready for the next step. Open {{connect_name}} to follow up.\n\n" +
+      '— {{connect_name}}',
   },
   step_stale_3_day: {
     channel: 'email',
@@ -33,8 +35,8 @@ const DEFAULT_TEMPLATES: Record<
     body:
       'Hi {{participant_first_name}},\n\n' +
       'You started "{{step_title}}" a few days ago. Whenever you have a moment, ' +
-      'open Encounter Connect and continue your journey.\n\n' +
-      '— Encounter Connect',
+      'open {{connect_name}} and continue your journey.\n\n' +
+      '— {{connect_name}}',
   },
   step_stale_7_day: {
     channel: 'email',
@@ -43,7 +45,7 @@ const DEFAULT_TEMPLATES: Record<
       'Hi {{participant_first_name}},\n\n' +
       "It's been a week since you started \"{{step_title}}\". No pressure — your " +
       'journey is yours. When you\'re ready, your next step is waiting.\n\n' +
-      '— Encounter Connect',
+      '— {{connect_name}}',
   },
   meeting_scheduled_to_connector: {
     channel: 'email',
@@ -51,8 +53,8 @@ const DEFAULT_TEMPLATES: Record<
     body:
       'Hi {{recipient_first_name}},\n\n' +
       '{{participant_name}} just scheduled a meeting with you for {{meeting_when}}.\n' +
-      'Open Encounter Connect to see their journey + 1:1 prep notes before you meet.\n\n' +
-      '— Encounter Connect',
+      'Open {{connect_name}} to see their journey + 1:1 prep notes before you meet.\n\n' +
+      '— {{connect_name}}',
   },
   meeting_scheduled_to_participant: {
     channel: 'email',
@@ -61,7 +63,7 @@ const DEFAULT_TEMPLATES: Record<
       'Hi {{participant_first_name}},\n\n' +
       'Your meeting with {{connector_name}} is scheduled for {{meeting_when}}.\n' +
       "We'll send you a reminder beforehand. Looking forward to it.\n\n" +
-      '— Encounter Connect',
+      '— {{connect_name}}',
   },
   meeting_confirmed_to_participant: {
     channel: 'email',
@@ -69,7 +71,7 @@ const DEFAULT_TEMPLATES: Record<
     body:
       'Hi {{participant_first_name}},\n\n' +
       '{{connector_name}} confirmed your meeting on {{meeting_when}}. See you then.\n\n' +
-      '— Encounter Connect',
+      '— {{connect_name}}',
   },
   meeting_declined_to_participant: {
     channel: 'email',
@@ -77,8 +79,8 @@ const DEFAULT_TEMPLATES: Record<
     body:
       'Hi {{participant_first_name}},\n\n' +
       "{{connector_name}} can\'t make the time you picked ({{meeting_when}}). " +
-      "Open Encounter Connect to choose a different slot — we\'ll match you with whoever\'s free.\n\n" +
-      '— Encounter Connect',
+      "Open {{connect_name}} to choose a different slot — we\'ll match you with whoever\'s free.\n\n" +
+      '— {{connect_name}}',
   },
   event_cancelled_to_rsvps: {
     channel: 'email',
@@ -115,8 +117,8 @@ const DEFAULT_TEMPLATES: Record<
       'Hi {{recipient_first_name}},\n\n' +
       'You don\'t have any availability set for the next {{horizon_days}} days, so ' +
       'participants can\'t book a meeting with you right now.\n' +
-      'Open Encounter Connect and add the times you\'re free to meet.\n\n' +
-      '— Encounter Connect',
+      'Open {{connect_name}} and add the times you\'re free to meet.\n\n' +
+      '— {{connect_name}}',
   },
 };
 
@@ -127,7 +129,48 @@ export function render(template: string, vars: Record<string, string | null | un
   });
 }
 
+/** How a church signs its messages, and the timezone its times are in. */
+export async function churchVoice(admin: SupabaseClient, churchId: string): Promise<{ name: string; timezone: string }> {
+  const { data } = await admin.from('churches').select('name, connect_name, timezone').eq('id', churchId).maybeSingle();
+  const c = data as { name: string; connect_name: string | null; timezone: string | null } | null;
+  return {
+    name: c ? connectName(c) : PLATFORM_NAME,
+    timezone: c?.timezone && isValidTimeZone(c.timezone) ? c.timezone : 'America/Chicago',
+  };
+}
+
+/** "Tue, Oct 13, 7:00 PM" in the church's timezone. */
+function meetingTime(startsAt: Date, timezone: string): string {
+  const iso = startsAt.toISOString();
+  return `${formatDateInZone(iso, timezone, { weekday: 'short', month: 'short', day: 'numeric' })}, ${formatTimeInZone(iso, timezone)}`;
+}
+
+/** "Encounter Connect", or "<Church> Connect" until the church names it. */
+export async function connectNameFor(admin: SupabaseClient, churchId: string): Promise<string> {
+  return (await churchVoice(admin, churchId)).name;
+}
+
+/**
+ * The church's template for `key` (or the built-in fallback), with
+ * {{connect_name}} already filled in so every caller signs messages with
+ * the church's own name.
+ */
 export async function loadTemplate(
+  admin: SupabaseClient,
+  churchId: string,
+  key: NotificationTemplateKey,
+): Promise<{
+  channel: NotificationChannel;
+  subject: string | null;
+  body: string;
+} | null> {
+  const [raw, name] = await Promise.all([loadRawTemplate(admin, churchId, key), connectNameFor(admin, churchId)]);
+  if (!raw) return null;
+  const fill = (t: string) => t.replace(/\{\{connect_name\}\}/g, name);
+  return { channel: raw.channel, subject: raw.subject ? fill(raw.subject) : null, body: fill(raw.body) };
+}
+
+async function loadRawTemplate(
   admin: SupabaseClient,
   churchId: string,
   key: NotificationTemplateKey,
@@ -352,13 +395,9 @@ export async function enqueueMeetingScheduled(
     .filter(Boolean);
   const connectorName = connectorNames.length ? connectorNames.join(' & ') : 'your connector';
   const participantName = `${participant.first_name} ${participant.last_name}`.trim();
-  const meetingWhen = args.startsAt.toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  const voice = await churchVoice(admin, participant.church_id);
+  // In the church's timezone: the server runs in UTC.
+  const meetingWhen = meetingTime(args.startsAt, voice.timezone);
 
   const baseVars: Record<string, string> = {
     participant_name: participantName,
@@ -407,7 +446,7 @@ export async function enqueueMeetingScheduled(
           recipient_phone: cp.phone,
           recipient_name: cName,
           subject: null,
-          body: `${participantName} just scheduled a meeting with you for ${meetingWhen}. Open Encounter Connect to confirm.`,
+          body: `${participantName} just scheduled a meeting with you for ${meetingWhen}. Open ${voice.name} to confirm.`,
           status: 'pending',
           metadata: {
             trigger: 'meeting_scheduled',
@@ -506,13 +545,9 @@ export async function enqueueMeetingDecision(
   const settings = await getNotificationSettings(admin, participant.church_id);
   if (!settings.meeting_decision_enabled) return;
 
-  const meetingWhen = args.startsAt.toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  const voice = await churchVoice(admin, participant.church_id);
+  // In the church's timezone: the server runs in UTC.
+  const meetingWhen = meetingTime(args.startsAt, voice.timezone);
 
   const key: NotificationTemplateKey =
     args.decision === 'confirmed'
@@ -552,8 +587,8 @@ export async function enqueueMeetingDecision(
   if (participant.sms_consent_at && participant.phone) {
     const smsBody =
       args.decision === 'confirmed'
-        ? `${connectorName} confirmed your meeting on ${meetingWhen}. See you then! — Encounter Connect`
-        : `${connectorName} can't make ${meetingWhen}. Open Encounter Connect to pick a new time.`;
+        ? `${connectorName} confirmed your meeting on ${meetingWhen}. See you then! — ${voice.name}`
+        : `${connectorName} can't make ${meetingWhen}. Open ${voice.name} to pick a new time.`;
     rows.push({
       church_id: participant.church_id,
       participant_id: participant.id,
@@ -600,6 +635,7 @@ export async function enqueueMeetingNotes(
 
   const participant = participantResult.data as ParticipantContext | null;
   if (!participant) return;
+  const voice = await churchVoice(admin, participant.church_id);
   const connectorProfile =
     (connectorResult.data as { profile: ConnectorContact | null } | null)?.profile ?? null;
   const ownName = connectorProfile
@@ -626,7 +662,7 @@ export async function enqueueMeetingNotes(
       body:
         `Hi ${participant.first_name},\n\n` +
         `Here are the notes ${connectorName} shared from your meeting:\n\n` +
-        `${notes}\n\n— Encounter Connect`,
+        `${notes}\n\n— ${voice.name}`,
       status: 'pending',
       metadata: meta,
     });
@@ -641,7 +677,7 @@ export async function enqueueMeetingNotes(
       recipient_phone: participant.phone,
       recipient_name: participantName || null,
       subject: null,
-      body: `${connectorName} shared notes from your meeting. Open Encounter Connect to read them.`,
+      body: `${connectorName} shared notes from your meeting. Open ${voice.name} to read them.`,
       status: 'pending',
       metadata: meta,
     });
@@ -993,7 +1029,7 @@ export async function enqueueAvailabilityReminders(
           subject: null,
           body:
             `You have no availability set for the next ${horizon} days, so no one ` +
-            `can book a meeting with you. Open Encounter Connect to add times.`,
+            `can book a meeting with you. Open ${(await churchVoice(admin, unit.churchId)).name} to add times.`,
           status: 'pending',
           metadata: {
             trigger: 'availability_reminder',

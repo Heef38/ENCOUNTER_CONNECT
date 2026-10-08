@@ -80,32 +80,108 @@ export async function getGroup(groupId: string): Promise<GroupRow | null> {
 export interface GroupMemberView {
   profile_id: string;
   first_name: string;
-  last_name: string;
-  email: string | null;
+  /** Full last name for leaders and staff; an initial for other members. */
+  last_name: string | null;
   role: 'member' | 'leader';
   joined_at: string;
 }
 
-/** Roster for a group. RLS restricts this to staff, leaders, and members. */
+/**
+ * Roster for a group, through the database's own projection
+ * (ec_group_roster): members see first name + last initial; leaders and
+ * staff see full names; anyone else gets nothing.
+ */
 export async function listGroupMembers(groupId: string): Promise<GroupMemberView[]> {
   const supabase = await createServerSupabaseClient();
-  const { data } = await supabase
-    .from('group_members')
-    .select('profile_id, role, joined_at, profile:profiles ( first_name, last_name, email )')
-    .eq('group_id', groupId)
-    .order('joined_at');
+  const { data } = await supabase.rpc('ec_group_roster', { gid: groupId });
+  return ((data ?? []) as GroupMemberView[]).map((r) => ({ ...r, first_name: r.first_name ?? '' }));
+}
 
-  return ((data ?? []) as unknown as Array<{
-    profile_id: string;
-    role: 'member' | 'leader';
-    joined_at: string;
-    profile: { first_name: string; last_name: string; email: string | null } | null;
-  }>).map((r) => ({
-    profile_id: r.profile_id,
-    first_name: r.profile?.first_name ?? '',
-    last_name: r.profile?.last_name ?? '',
-    email: r.profile?.email ?? null,
-    role: r.role,
-    joined_at: r.joined_at,
+export interface GroupDetail {
+  group: GroupRow;
+  parentName: string | null;
+  leaderName: string | null;
+  members: GroupMemberView[];
+  isMember: boolean;
+  isLeader: boolean;
+  /** campus_admin+ in the group's church (or platform admin). */
+  canAdmin: boolean;
+  /** Admins and the group's leaders manage the roster. */
+  canManageRoster: boolean;
+  upcoming: Array<{ id: string; title: string; starts_at: string; timezone: string; status: string }>;
+}
+
+export async function getGroupDetail(groupId: string): Promise<GroupDetail | null> {
+  const session = await getSession();
+  if (!session) return null;
+  const supabase = await createServerSupabaseClient();
+
+  // RLS: staff, members, and (for non-private, non-youth groups) the church.
+  const { data: groupRow } = await supabase.from('groups').select('*').eq('id', groupId).maybeSingle();
+  const group = groupRow as GroupRow | null;
+  if (!group) return null;
+
+  const admin = await createServiceRoleClient();
+  const [members, parent, leader, eventIds] = await Promise.all([
+    listGroupMembers(groupId),
+    group.parent_group_id
+      ? admin.from('groups').select('name').eq('id', group.parent_group_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    group.leader_profile_id
+      ? admin.from('profiles').select('first_name, last_name').eq('id', group.leader_profile_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase.from('event_audiences').select('event_id').eq('group_id', groupId),
+  ]);
+
+  const ids = ((eventIds.data ?? []) as Array<{ event_id: string }>).map((r) => r.event_id);
+  const { data: upcoming } = ids.length
+    ? await supabase
+        .from('events')
+        .select('id, title, starts_at, timezone, status')
+        .in('id', ids)
+        .in('status', ['published', 'cancelled'])
+        .gte('ends_at', new Date().toISOString())
+        .order('starts_at')
+        .limit(8)
+    : { data: [] };
+
+  const p = session.profile;
+  const canAdmin =
+    Boolean(p?.is_platform_admin) ||
+    (p?.church_id === group.church_id && (p?.role === 'church_admin' || p?.role === 'campus_admin'));
+  const mine = members.find((m) => m.profile_id === session.id);
+  const isLeader = mine?.role === 'leader' || group.leader_profile_id === session.id;
+  const l = leader.data as { first_name: string; last_name: string } | null;
+
+  return {
+    group,
+    parentName: (parent.data as { name: string } | null)?.name ?? null,
+    leaderName: l ? `${l.first_name} ${l.last_name}`.trim() : null,
+    members,
+    isMember: Boolean(mine),
+    isLeader,
+    canAdmin,
+    canManageRoster: canAdmin || isLeader,
+    upcoming: (upcoming ?? []) as GroupDetail['upcoming'],
+  };
+}
+
+/**
+ * People an admin can add to a group: everyone at their church, through
+ * RLS (campus admins and church admins may read their church's profiles).
+ * Not available to leaders, who add by exact email instead.
+ */
+export async function listChurchPeopleForPicker(churchId: string): Promise<Array<{ id: string; name: string; email: string | null }>> {
+  const supabase = await createServerSupabaseClient();
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, email')
+    .eq('church_id', churchId)
+    .order('first_name')
+    .limit(2000);
+  return ((data ?? []) as Array<{ id: string; first_name: string; last_name: string; email: string | null }>).map((r) => ({
+    id: r.id,
+    name: `${r.first_name} ${r.last_name}`.trim() || r.email || 'Unnamed',
+    email: r.email,
   }));
 }

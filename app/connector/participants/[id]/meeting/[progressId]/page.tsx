@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import { MeetingNotesEditor } from './meeting-notes-editor';
 import { resolveDocFileUrl } from '@/lib/storage/files';
 import type { AssessmentCategory } from '@/lib/assessments/types';
+import { getChurchContext } from '@/lib/church/context';
+import { formatDateTimeInZone } from '@/lib/time/zoned';
 
 export default async function MeetingRoomPage({
   params,
@@ -78,6 +80,7 @@ export default async function MeetingRoomPage({
   if (!participant) notFound();
   // Scope connect docs to the participant's church (service-role bypasses RLS).
   const churchId = (participant as { church_id: string }).church_id;
+  const churchTz = (await getChurchContext(churchId))?.timezone ?? 'America/Chicago';
 
   const results = ((resultRows ?? []) as unknown as PrepResult[]).filter((r) => r.assessment !== null);
 
@@ -140,7 +143,7 @@ export default async function MeetingRoomPage({
       </div>
       {bookingStartsAt && (
         <p className="-mt-3 text-sm text-foreground-muted">
-          {new Date(bookingStartsAt).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+          {formatDateTimeInZone(bookingStartsAt, churchTz)}
         </p>
       )}
 

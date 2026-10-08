@@ -58,7 +58,7 @@ export async function requireStaff(): Promise<SessionUser> {
 }
 
 /**
- * Requires platform_admin (operator of Encounter Connect itself).
+ * Requires platform_admin (operator of ChurchConnect itself).
  */
 export async function requirePlatformAdmin(): Promise<SessionUser> {
   const session = await requireAuth();
@@ -88,87 +88,6 @@ export async function requireCampusAdmin(): Promise<SessionUser> {
     redirect('/dashboard');
   }
   return session;
-}
-
-/**
- * Computes the post-login landing URL for a given profile.
- * Platform admins land on /dashboard; staff on /dashboard; participants on /journey.
- *
- * NOTE: This intentionally ignores connector membership — call sites that
- * want to honor the role picker should use `landingForSession()` instead.
- */
-export function landingPathForProfile(profile: Profile | null): string {
-  if (!profile) return '/journey';
-  if (profile.is_platform_admin) return '/dashboard';
-  return profile.role === 'participant' ? '/journey' : '/dashboard';
-}
-
-export type AvailablePlatform = 'platform' | 'admin' | 'connector' | 'participant';
-
-export interface PlatformOption {
-  key: AvailablePlatform;
-  label: string;
-  description: string;
-  href: string;
-}
-
-/**
- * Returns every platform a session is eligible for. Used to decide
- * whether to show the role-picker landing page (2+) or jump straight
- * into the only available home (1).
- */
-export async function getAvailablePlatforms(
-  session: SessionUser,
-): Promise<PlatformOption[]> {
-  const out: PlatformOption[] = [];
-  const role = session.profile?.role;
-
-  if (session.profile?.is_platform_admin) {
-    out.push({
-      key: 'platform',
-      label: 'Platform admin',
-      description: 'Manage churches across the entire Encounter Connect platform.',
-      href: '/platform/churches',
-    });
-  }
-
-  if (role === 'church_admin' || role === 'campus_admin') {
-    out.push({
-      key: 'admin',
-      label: 'Church admin',
-      description: 'People, flows, settings, audit log — the full church dashboard.',
-      href: '/dashboard',
-    });
-  }
-
-  // Connector membership is determined by an active connectors row tied
-  // to this profile, regardless of the profile.role enum.
-  const supabase = await createServerSupabaseClient();
-  const { data: connectorRow } = await supabase
-    .from('connectors')
-    .select('id')
-    .eq('profile_id', session.id)
-    .eq('is_active', true)
-    .maybeSingle();
-  if (connectorRow) {
-    out.push({
-      key: 'connector',
-      label: 'Connector',
-      description: 'Walk participants through their journey one-on-one.',
-      href: '/connector',
-    });
-  }
-
-  if (role === 'participant') {
-    out.push({
-      key: 'participant',
-      label: 'My journey',
-      description: 'Continue where you left off in your connection journey.',
-      href: '/journey',
-    });
-  }
-
-  return out;
 }
 
 /**

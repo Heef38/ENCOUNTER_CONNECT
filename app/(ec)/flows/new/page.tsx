@@ -53,7 +53,7 @@ export default async function NewFlowPage({
             </div>
             <div className="flex-1">
               <p className="text-sm font-semibold text-foreground">
-                Use the Encounter Connect template
+                Use Encounter&apos;s video journey
               </p>
               <p className="mt-1 text-xs text-foreground-muted">
                 Pre-built 5-step journey: welcome videos → personal assessment →

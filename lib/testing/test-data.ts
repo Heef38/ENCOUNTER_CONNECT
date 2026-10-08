@@ -10,7 +10,7 @@ import {
   TEST_CHURCH_SLUG,
   TEST_CAMPUS_SLUG,
   TEST_EMAIL_DOMAIN,
-  TEST_PASSWORD,
+  TEST_PASSWORD_ENV,
   TEST_USERS,
 } from './test-users';
 
@@ -87,6 +87,13 @@ export interface SeedResult {
 
 export async function seedTestChurch(): Promise<SeedResult> {
   await requirePlatformAdmin();
+  const testPassword = process.env[TEST_PASSWORD_ENV] ?? '';
+  if (testPassword.length < 12) {
+    return {
+      ok: false,
+      error: `Set ${TEST_PASSWORD_ENV} (12+ characters) in the environment before seeding. Test accounts live in the production database, so their password is never hardcoded.`,
+    };
+  }
   const admin = await createServiceRoleClient();
 
   // Idempotency: refuse to seed twice. User must wipe first to get a clean
@@ -140,7 +147,7 @@ export async function seedTestChurch(): Promise<SeedResult> {
   for (const spec of TEST_USERS) {
     const { data: created, error: authErr } = await admin.auth.admin.createUser({
       email: spec.email,
-      password: TEST_PASSWORD,
+      password: testPassword,
       email_confirm: true,
       user_metadata: { first_name: spec.firstName, last_name: spec.lastName },
     });

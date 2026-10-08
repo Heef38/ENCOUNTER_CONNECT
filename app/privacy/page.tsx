@@ -4,10 +4,10 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
-  description: 'How Encounter Connect collects, uses, and protects your information.',
+  description: 'How ChurchConnect collects, uses, and protects your information.',
 };
 
-const EFFECTIVE_DATE = 'May 27, 2026';
+const EFFECTIVE_DATE = 'October 8, 2026';
 const CONTACT_EMAIL = 'dev@encounterthelord.com';
 const SITE_URL = 'https://encounter-connect.app';
 
@@ -42,10 +42,13 @@ export default function PrivacyPolicyPage() {
 
       <Section title="Overview">
         <p>
-          Encounter Connect (&ldquo;Encounter Connect,&rdquo; &ldquo;we,&rdquo;
+          ChurchConnect (&ldquo;ChurchConnect,&rdquo; &ldquo;we,&rdquo;
           &ldquo;us,&rdquo; or &ldquo;our&rdquo;) operates the connection platform
-          available at {SITE_URL} (the &ldquo;Service&rdquo;), which churches use to
-          help people connect to community and take next steps. This Privacy Policy
+          available at {SITE_URL} (the &ldquo;Service&rdquo;), which churches use, each
+          under its own name such as &ldquo;Encounter Connect,&rdquo; to help people
+          connect to community and take next steps. Your church decides how it uses
+          the Service with its people, and we handle your information on its behalf
+          to run the Service. This Privacy Policy
           explains what information we collect, how we use it, and the choices you
           have. By using the Service, you agree to the practices described here.
         </p>
@@ -68,6 +71,11 @@ export default function PrivacyPolicyPage() {
             <strong className="text-foreground">Journey and activity data</strong> —
             your progress through the steps your church assigns, assessment
             responses, appointment bookings, and related notes.
+          </li>
+          <li>
+            <strong className="text-foreground">Gatherings</strong> — gatherings you
+            host or RSVP to, including a gathering&rsquo;s place, and whether you came
+            when a host checks people in.
           </li>
           <li>
             <strong className="text-foreground">Technical data</strong> — basic log
@@ -93,6 +101,41 @@ export default function PrivacyPolicyPage() {
           <li>Secure the Service, prevent abuse, and comply with legal obligations.</li>
         </ul>
         <p>We do not sell your personal information.</p>
+      </Section>
+
+      <Section title="Gatherings, Maps, and What Is Public">
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong className="text-foreground">Public gatherings</strong> can be
+            seen by anyone, signed in or not, and may appear in search engines. A
+            public gathering shows its title, time, place, and the host&rsquo;s first
+            name and last initial. It shows a home&rsquo;s street address only when
+            the host confirms they want it public and their church allows it.
+          </li>
+          <li>
+            <strong className="text-foreground">Private gatherings</strong> are
+            visible only to the people they are for. A private gathering at a home
+            shares its street address only with people who say they are going.
+          </li>
+          <li>
+            <strong className="text-foreground">Maps.</strong> A home is never
+            placed on a map; a home gathering shows at its church&rsquo;s pin. We do
+            not ask for or store your location.
+          </li>
+          <li>
+            <strong className="text-foreground">Who sees your RSVP.</strong> A host
+            sees the names of people who respond to their gathering. Other members
+            going to the same private gathering, and members of the same group, see
+            your first name and last initial. If you RSVP to another church&rsquo;s
+            public gathering, its host sees your name and your church.
+          </li>
+          <li>
+            <strong className="text-foreground">Messaging a host.</strong> When you
+            message a host through the Service, we email them your message, your
+            name, and your email address so they can reply. Hosts&rsquo; phone numbers
+            and emails are never shown to you.
+          </li>
+        </ul>
       </Section>
 
       <Section title="SMS / Text Messaging">
@@ -162,10 +205,27 @@ export default function PrivacyPolicyPage() {
             journey.
           </li>
           <li>
+            <strong className="text-foreground">Other people at your church</strong>
+            {' '}— hosts, group leaders, and members as described under
+            &ldquo;Gatherings, Maps, and What Is Public.&rdquo;
+          </li>
+          <li>
             <strong className="text-foreground">Service providers</strong> — vendors
             who process data on our behalf under contract, including our hosting and
             database provider, email provider, and SMS provider. They may use your
             information only to provide services to us.
+          </li>
+          <li>
+            <strong className="text-foreground">Maps and address lookup</strong>
+            {' '}— to place church buildings and public venues on the map, we look up
+            their addresses with OpenStreetMap&rsquo;s Nominatim service. Home
+            addresses are never sent. Map images load from OpenFreeMap, which, like
+            any website you visit, sees your device&rsquo;s IP address.
+          </li>
+          <li>
+            <strong className="text-foreground">The platform operator</strong>
+            {' '}— our staff can access church data when needed to run, support, and
+            secure the Service.
           </li>
           <li>
             <strong className="text-foreground">Legal</strong> — when required by law

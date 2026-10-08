@@ -67,12 +67,21 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
   if (isCampusAdmin) {
     const items: NavItem[] = [
       { href: '/',                 label: 'Hub' },
-      { href: '/dashboard',        label: 'Dashboard' },
+      { href: '/dashboard',        label: 'This week' },
       {
         label: 'People',
         children: [
           { href: '/people',     label: 'All' },
           { href: '/connectors', label: 'Connectors' },
+          { href: '/groups',     label: 'Groups' },
+        ],
+      },
+      {
+        label: 'Gatherings',
+        children: [
+          { href: '/hub/new',                   label: 'Host a gathering' },
+          { href: '/groups/start-home-group',   label: 'Start a home group' },
+          { href: '/hub/review',                label: 'Reported' },
         ],
       },
       { href: '/appointments',     label: 'Appointments' },
@@ -106,6 +115,8 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
       label: 'Connector',
       color: 'success',
       items: [
+        // A connector who is also an admin already has Hub in that bracket.
+        ...(isCampusAdmin ? [] : [{ href: '/', label: 'Hub' }]),
         { href: '/connector',              label: 'My participants' },
         { href: '/connector/campus',       label: 'All campus' },
         { href: '/connector/availability', label: 'My availability' },
@@ -121,7 +132,9 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
       // `profile.role` is a single enum, so this bracket and the admin one
       // above never both render — no duplicate Hub link.
       items: [
-        { href: '/',        label: 'Hub' },
+        ...(connectorRow ? [] : [{ href: '/', label: 'Hub' }]),
+        { href: '/groups',  label: 'Groups' },
+        { href: '/learn',   label: 'Learn' },
         { href: '/journey', label: 'My journey' },
       ],
     });

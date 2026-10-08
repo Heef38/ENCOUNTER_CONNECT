@@ -136,7 +136,7 @@ export function TemplateForm({
           placeholder={
             'Hi {{recipient_first_name}},\n\n' +
             '{{participant_name}} just finished "{{step_title}}". They\'re ready for the next step.\n\n' +
-            '— Encounter Connect'
+            '— {{connect_name}}'
           }
           className="font-mono text-xs"
         />

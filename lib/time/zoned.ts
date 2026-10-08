@@ -61,6 +61,17 @@ export function formatDateInZone(
   return new Date(iso).toLocaleDateString(locale, { ...options, timeZone });
 }
 
+/** "Tuesday, October 13, 2026 at 7:00 PM CDT", in `timeZone`. */
+export function formatDateTimeInZone(iso: string, timeZone: string, locale = DEFAULT_LOCALE): string {
+  const date = formatDateInZone(iso, timeZone, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }, locale);
+  return `${date} at ${formatTimeInZone(iso, timeZone, locale)} ${zoneAbbreviation(iso, timeZone, locale)}`;
+}
+
+/** "Oct 13, 7:00 PM", in `timeZone`. */
+export function formatShortDateTimeInZone(iso: string, timeZone: string, locale = DEFAULT_LOCALE): string {
+  return `${formatDateInZone(iso, timeZone, { month: 'short', day: 'numeric' }, locale)}, ${formatTimeInZone(iso, timeZone, locale)}`;
+}
+
 /** Short zone label such as "CDT", for showing next to a time. */
 export function zoneAbbreviation(iso: string, timeZone: string, locale = DEFAULT_LOCALE): string {
   const p = new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: 'short' })
