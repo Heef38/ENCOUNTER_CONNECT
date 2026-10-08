@@ -66,6 +66,7 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
 
   if (isCampusAdmin) {
     const items: NavItem[] = [
+      { href: '/',                 label: 'Hub' },
       { href: '/dashboard',        label: 'Dashboard' },
       {
         label: 'People',
@@ -117,7 +118,12 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
       key: 'participant',
       label: 'Participant',
       color: 'primary',
-      items: [{ href: '/journey', label: 'My journey' }],
+      // `profile.role` is a single enum, so this bracket and the admin one
+      // above never both render — no duplicate Hub link.
+      items: [
+        { href: '/',        label: 'Hub' },
+        { href: '/journey', label: 'My journey' },
+      ],
     });
   }
 
@@ -131,6 +137,18 @@ export async function buildNavGroups(session: SessionUser): Promise<NavGroup[]> 
  * them jump between groups.
  */
 export function defaultHomeFromGroups(groups: NavGroup[]): string {
+  // The connection hub at `/` is home for everyone now. The role-specific
+  // homes below are still one click away in the nav; they're just no longer
+  // where a session lands.
+  void groups;
+  return '/';
+}
+
+/**
+ * The role-specific home a session would have landed on before the hub became
+ * `/`. Kept because the nav's group brackets still link to these.
+ */
+export function roleHomeFromGroups(groups: NavGroup[]): string {
   if (groups.length === 0) return '/journey';
   if (groups.find((g) => g.key === 'admin')) return '/dashboard';
   if (groups.find((g) => g.key === 'platform')) return '/platform/churches';

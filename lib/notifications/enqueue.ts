@@ -158,6 +158,33 @@ function resolveParticipantDelivery(
   return { ok: Boolean(participant.email), recipientPhone: null };
 }
 
+/**
+ * The profile-shaped sibling of `resolveParticipantDelivery`.
+ *
+ * Event notifications go out to *profiles* — staff, connectors, and group
+ * members who never went through the participant signup form — so the
+ * participant consent column can't cover them. `profiles.sms_consent_at`
+ * (migration 028) is the consent of record here, and NULL means "never asked",
+ * which means do not text.
+ *
+ * Same contract as the participant version: returning `ok: false` tells the
+ * caller to skip the row entirely, so a non-consented profile never gets an
+ * outbox row in the first place. The drain has no consent knowledge — enqueue
+ * is the only chokepoint, and it stays that way.
+ */
+export function resolveProfileDelivery(
+  channel: NotificationChannel,
+  profile: { email: string | null; phone: string | null; sms_consent_at: string | null },
+): { ok: boolean; recipientPhone: string | null } {
+  if (channel === 'sms') {
+    if (profile.sms_consent_at && profile.phone) {
+      return { ok: true, recipientPhone: profile.phone };
+    }
+    return { ok: false, recipientPhone: null };
+  }
+  return { ok: Boolean(profile.email), recipientPhone: null };
+}
+
 interface ConnectorContact {
   email: string | null;
   phone: string | null;

@@ -179,14 +179,13 @@ export async function getAvailablePlatforms(
  * Order of preference: platform > admin > connector > participant.
  */
 export async function landingForSession(session: SessionUser): Promise<string> {
-  const platforms = await getAvailablePlatforms(session);
-  if (platforms.length === 0) return '/journey';
-  const order: AvailablePlatform[] = ['admin', 'platform', 'connector', 'participant'];
-  for (const key of order) {
-    const found = platforms.find((p) => p.key === key);
-    if (found) return found.href;
-  }
-  return platforms[0].href;
+  // The connection hub at `/` is now home for every role — it's the one page
+  // that's useful to all of them, and the nav still carries each role's own
+  // home. Kept async and session-taking so call sites (login action, magic-link
+  // confirm route) don't change, and so a future per-church or per-role landing
+  // preference has somewhere to live.
+  void session;
+  return '/';
 }
 
 /**

@@ -88,6 +88,14 @@ export interface Profile {
   first_name: string;
   last_name: string;
   email: string | null;
+  /** Staff/member mobile number for operational notifications (migration 018). */
+  phone: string | null;
+  /**
+   * When this person opted in to SMS (migration 028). NULL = never asked =
+   * do not text. Enforced at enqueue by `resolveProfileDelivery`.
+   */
+  sms_consent_at: string | null;
+  sms_consent_source: string | null;
   created_at: string;
   updated_at: string;
 }
