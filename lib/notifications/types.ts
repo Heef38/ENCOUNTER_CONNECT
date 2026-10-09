@@ -20,7 +20,8 @@ export type NotificationTemplateKey =
   | 'event_message_to_host'
   | 'admin_weekly_digest'
   | 'connector_contact_nudge'
-  | 'admin_contact_escalation';
+  | 'admin_contact_escalation'
+  | 'church_invite';
 
 export interface NotificationTemplate {
   id: string;

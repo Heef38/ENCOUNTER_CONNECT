@@ -1,52 +1,47 @@
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
-import { requireChurchAdmin } from '@/lib/auth/dal';
+import { requireCampusAdmin } from '@/lib/auth/dal';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { inviteStaff } from '@/lib/people/actions';
-import { InviteStaffForm } from './invite-form';
+import { getChurchContext } from '@/lib/church/context';
+import { connectName } from '@/lib/brand';
+import { InviteForm } from './invite-form';
 
-export default async function InviteStaffPage() {
-  const session = await requireChurchAdmin();
+export default async function InvitePage() {
+  const session = await requireCampusAdmin();
   const churchId = session.profile?.church_id;
+  const canInviteStaff = session.profile?.role === 'church_admin' || Boolean(session.profile?.is_platform_admin);
 
   const supabase = await createServerSupabaseClient();
-  const campusesResult = churchId
-    ? await supabase
-        .from('campuses')
-        .select('id, name')
-        .eq('church_id', churchId)
-        .eq('is_active', true)
-        .order('name')
-    : { data: [] };
-
-  async function action(_prev: unknown, formData: FormData) {
-    'use server';
-    return inviteStaff(formData);
-  }
+  const [church, campusesResult] = await Promise.all([
+    churchId ? getChurchContext(churchId) : Promise.resolve(null),
+    churchId
+      ? supabase.from('campuses').select('id, name').eq('church_id', churchId).eq('is_active', true).order('name')
+      : Promise.resolve({ data: [] }),
+  ]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <Link
-          href="/people"
-          className="mb-1 inline-flex items-center gap-1 text-xs text-foreground-subtle hover:text-foreground"
-        >
+        <Link href="/people" className="mb-1 inline-flex items-center gap-1 text-xs text-foreground-subtle hover:text-foreground">
           <ChevronLeft className="h-3 w-3" />
           People
         </Link>
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
-          Invite staff
-        </h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Invite someone</h1>
         <p className="mt-1 text-sm text-foreground-muted">
-          Create a new admin or connector account. They can sign in immediately
-          with the temporary password you set — share it with them, and they can
-          change it later.
+          {canInviteStaff
+            ? 'Invite a member who already belongs here, or someone joining your team.'
+            : 'Invite a member who already belongs here. A church admin invites staff.'}{' '}
+          Bringing in many people at once? Use{' '}
+          <Link href="/people/import" className="text-primary hover:underline">
+            import
+          </Link>
+          .
         </p>
       </div>
-
-      <InviteStaffForm
+      <InviteForm
         campuses={(campusesResult.data ?? []) as Array<{ id: string; name: string }>}
-        action={action}
+        canInviteStaff={canInviteStaff}
+        connectName={church ? connectName(church) : 'your church'}
       />
     </div>
   );

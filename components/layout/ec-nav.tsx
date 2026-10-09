@@ -89,9 +89,13 @@ export function ECNav({ groups, userLabel, homeHref, brand }: Props) {
 
         <div className="hidden flex-none items-center gap-1 justify-self-end md:flex">
           {userLabel && (
-            <span className="mx-2 hidden text-xs text-foreground-subtle md:inline">
+            <Link
+              href="/account"
+              title="Your account"
+              className="mx-2 hidden text-xs text-foreground-subtle hover:text-foreground md:inline"
+            >
               {userLabel}
-            </span>
+            </Link>
           )}
           <ThemeToggle />
           <SignOutButton />
@@ -117,7 +121,9 @@ export function ECNav({ groups, userLabel, homeHref, brand }: Props) {
         </nav>
         <div className="mt-auto border-t border-border px-4 py-3">
           {userLabel && (
-            <p className="mb-2 text-xs text-foreground-subtle">{userLabel}</p>
+            <Link href="/account" className="mb-2 block text-xs text-foreground-subtle hover:text-foreground">
+              {userLabel} · Your account
+            </Link>
           )}
           <div className="flex items-center justify-between gap-2">
             <ThemeToggle />

@@ -132,7 +132,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             {ctx.isAdmin ? 'On track' : 'Your people'}
           </h2>
           <StagePills counts={summary.counts} newThisWeek={summary.newThisWeek} />
-          <AttentionBuckets buckets={summary.buckets} groups={ctx.isAdmin ? tableGroups : []} />
+          <AttentionBuckets buckets={summary.buckets} groups={ctx.isAdmin ? tableGroups : []} canConfirm={ctx.isAdmin} />
         </section>
       )}
 

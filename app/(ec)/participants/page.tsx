@@ -19,6 +19,7 @@ const STAGE_TONES: Record<Stage, 'neutral' | 'info' | 'warning' | 'success' | 'd
   plugged_in: 'success',
   serving: 'success',
   inactive: 'neutral',
+  member: 'neutral',
 };
 
 interface SearchParams {

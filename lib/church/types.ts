@@ -110,6 +110,9 @@ export interface Profile {
    */
   sms_consent_at: string | null;
   sms_consent_source: string | null;
+  /** Host standing (migration 031), set by an admin of their church. */
+  host_blocked_at?: string | null;
+  trusted_host_at?: string | null;
   created_at: string;
   updated_at: string;
 }

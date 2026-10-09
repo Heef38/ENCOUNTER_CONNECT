@@ -138,6 +138,18 @@ const DEFAULT_TEMPLATES: Record<
       'See them here: {{participant_url}}\n\n' +
       '— {{connect_name}}',
   },
+  church_invite: {
+    // Always sent by email, whatever channel a church sets on its copy:
+    // the link is signed at send time and never stored.
+    channel: 'email',
+    subject: "You're invited to {{connect_name}}",
+    body:
+      'Hi {{first_name}},\n\n' +
+      '{{inviter}} has invited you to join {{connect_name}} {{role_phrase}}.\n\n' +
+      'Accept your invite here:\n{{invite_link}}\n\n' +
+      "The link works until {{expires_on}}. If you weren't expecting this, you can ignore it.\n\n" +
+      '— {{connect_name}} through ChurchConnect',
+  },
   connector_availability_reminder: {
     channel: 'email',
     subject: 'Add your availability so people can book with you',

@@ -20,6 +20,11 @@ function firstFile(base) {
 }
 
 export async function resolve(specifier, context, nextResolve) {
+  // Next's build-time guard against importing server code into the browser.
+  // Tests run on the server side of that line, so it is an empty module here.
+  if (specifier === 'server-only') {
+    return { url: 'data:text/javascript,export {}', shortCircuit: true };
+  }
   if (specifier.startsWith('@/')) {
     const hit = firstFile(path.join(ROOT, specifier.slice(2)));
     if (hit) return nextResolve(pathToFileURL(hit).href, context);

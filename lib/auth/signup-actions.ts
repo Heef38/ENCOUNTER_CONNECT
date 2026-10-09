@@ -5,6 +5,7 @@ import {
   createServiceRoleClient,
 } from '@/lib/supabase/server';
 import { recordAudit } from '@/lib/audit/log';
+import { emailHash } from '@/lib/account/email-hash';
 import {
   initializeParticipantProgress,
   resolveDefaultFlowId,
@@ -18,6 +19,7 @@ export interface SignupResult {
    * confirmation off). False when they need to verify via email.
    */
   hasSession?: boolean;
+  joinedAs?: 'guest' | 'member';
 }
 
 interface SignupArgs {
@@ -31,6 +33,12 @@ interface SignupArgs {
   phone?: string;
   /** True when the user checked the SMS consent box. Only honored if a phone is given. */
   smsConsent?: boolean;
+  /**
+   * "I already belong to this church": a member, not a newcomer. They skip
+   * the journey and wait in the admins' confirm bucket. Their own word gives
+   * no standing; an admin's confirmation does.
+   */
+  joinedAs?: 'guest' | 'member';
 }
 
 /**
@@ -48,6 +56,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
   const email = args.email.trim().toLowerCase();
   const password = args.password;
   const phone = args.phone?.trim() || null;
+  const joinedAs: 'guest' | 'member' = args.joinedAs === 'member' ? 'member' : 'guest';
 
   if (!firstName || !lastName) return { ok: false, error: 'Please enter your name.' };
   if (!email) return { ok: false, error: 'Email is required.' };
@@ -165,6 +174,7 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
       email,
       phone,
       status: 'new',
+      joined_as: joinedAs,
       signed_up_at: new Date().toISOString(),
       sms_consent_at: smsConsentAt,
       sms_consent_source: smsConsentAt ? 'web_signup' : null,
@@ -176,11 +186,11 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
     return { ok: false, error: participantError?.message ?? 'Could not create participant.' };
   }
 
-  // Enroll the participant in their default flow so their journey isn't
-  // empty on first login. The campus default wins over the church-wide
-  // default; absent either, the journey stays empty and staff can enroll
-  // later. Best-effort: enrollment must never fail the signup itself.
-  try {
+  // Enroll a newcomer in their default flow so their journey isn't empty
+  // on first login. The campus default wins over the church-wide default;
+  // absent either, the journey stays empty and staff can enroll later.
+  // Members skip it. Best-effort: enrollment must never fail the signup.
+  if (joinedAs === 'guest') try {
     const flowId = await resolveDefaultFlowId(admin, args.churchId, campusId);
     if (flowId) {
       const init = await initializeParticipantProgress(admin, participantRow.id, flowId);
@@ -214,6 +224,30 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
     // block account creation.
   }
 
+  // A host who was blocked here, deleted their account and came back under
+  // the same email is still blocked, and the church sees why (§7.9).
+  try {
+    const { data: priorDeletion } = await admin
+      .from('audit_log')
+      .select('id')
+      .eq('church_id', args.churchId)
+      .eq('action', 'account.deleted')
+      .contains('metadata', { email_sha256: emailHash(email), was_blocked_host: true })
+      .limit(1);
+    if ((priorDeletion ?? []).length > 0) {
+      await admin.from('profiles').update({ host_blocked_at: new Date().toISOString() }).eq('id', user.id);
+      await admin.from('participant_touches').insert({
+        participant_id: participantRow.id,
+        church_id: args.churchId,
+        kind: 'note',
+        source: 'system',
+        summary: 'This email belonged to a host who was blocked here and then deleted their account. Hosting stays blocked until an admin lifts it.',
+      });
+    }
+  } catch {
+    // Never fail a signup over this check.
+  }
+
   await recordAudit({
     action: 'participant.self_signup',
     entity_type: 'profile',
@@ -223,11 +257,13 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
       campus_id: campusId,
       email,
       sms_consent: Boolean(smsConsentAt),
+      joined_as: joinedAs,
     },
   });
 
   return {
     ok: true,
     hasSession: Boolean(signupData.session),
+    joinedAs,
   };
 }

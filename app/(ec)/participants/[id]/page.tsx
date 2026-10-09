@@ -13,6 +13,7 @@ import { FLAGS, STAGES, getParticipantStage } from '@/lib/connect/pipeline';
 import { getChurchContext } from '@/lib/church/context';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { HostStanding } from './host-standing';
+import { MembershipControls } from '@/components/connect/membership';
 
 const STATUS_TONES: Record<string, 'info' | 'warning' | 'success' | 'neutral' | 'danger'> = {
   new:         'info',
@@ -254,6 +255,19 @@ export default async function ParticipantDetailPage({
               <p className="text-sm text-foreground-subtle">No connector assigned.</p>
             )}
           </div>
+
+          {canManage && (
+            <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
+                Belonging
+              </h2>
+              <MembershipControls
+                participantId={participant.id}
+                joinedAs={(participant.joined_as as 'guest' | 'member' | undefined) ?? 'guest'}
+                confirmed={Boolean(participant.member_confirmed_at)}
+              />
+            </div>
+          )}
 
           {hostStanding && participant.profile_id && (
             <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">

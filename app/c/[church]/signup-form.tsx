@@ -28,6 +28,7 @@ export function SignupForm({ churchId, campusId, campusLabel }: Props) {
     const password = String(formData.get('password') ?? '');
     const phone = String(formData.get('phone') ?? '');
     const smsConsent = formData.get('sms_consent') === 'on';
+    const joinedAs = formData.get('joined_as') === 'member' ? 'member' : 'guest';
 
     startTransition(async () => {
       const result = await signUpParticipant({
@@ -39,6 +40,7 @@ export function SignupForm({ churchId, campusId, campusLabel }: Props) {
         password,
         phone,
         smsConsent,
+        joinedAs,
       });
 
       if (!result.ok) {
@@ -47,7 +49,7 @@ export function SignupForm({ churchId, campusId, campusLabel }: Props) {
       }
 
       if (result.hasSession) {
-        router.push('/journey');
+        router.push(result.joinedAs === 'member' ? '/' : '/journey');
         router.refresh();
       } else {
         setVerifyMode(true);
@@ -69,6 +71,23 @@ export function SignupForm({ churchId, campusId, campusLabel }: Props) {
 
   return (
     <form action={handleSubmit} className="space-y-4">
+      <fieldset className="grid gap-2 sm:grid-cols-2">
+        <legend className="sr-only">Are you new here?</legend>
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+          <input type="radio" name="joined_as" value="guest" defaultChecked className="mt-0.5 accent-primary" />
+          <span>
+            I&apos;m new here
+            <span className="block text-xs text-foreground-muted">Someone will reach out to welcome you.</span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+          <input type="radio" name="joined_as" value="member" className="mt-0.5 accent-primary" />
+          <span>
+            I already belong to this church
+            <span className="block text-xs text-foreground-muted">Skip the welcome steps. An admin confirms you.</span>
+          </span>
+        </label>
+      </fieldset>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="first_name">First name</Label>

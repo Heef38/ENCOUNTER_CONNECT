@@ -15,6 +15,8 @@ export interface SendResult {
   ok: boolean;
   error?: string;
   providerId?: string;
+  /** Rate limited or a provider outage: try again later rather than fail. */
+  retryable?: boolean;
 }
 
 /**
@@ -58,6 +60,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendResult> {
     return {
       ok: false,
       error: err instanceof Error ? err.message : 'Network error reaching Resend.',
+      retryable: true,
     };
   }
 
@@ -72,7 +75,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendResult> {
     const obj = payload as { message?: string; error?: string } | null;
     const msg =
       obj?.message ?? obj?.error ?? `Resend HTTP ${response.status}`;
-    return { ok: false, error: msg };
+    return { ok: false, error: msg, retryable: response.status === 429 || response.status >= 500 };
   }
 
   const ok = payload as { id?: string } | null;
@@ -86,4 +89,17 @@ function escapeHtml(input: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/**
+ * The platform's sending address under a church's own display name, so a
+ * church's people see "Seminole Connect", never another church's name.
+ */
+export function brandedFrom(displayName: string): string | undefined {
+  const raw = process.env.RESEND_FROM_EMAIL?.trim();
+  if (!raw) return undefined;
+  const match = /<([^>]+)>/.exec(raw);
+  const address = (match ? match[1] : raw).trim();
+  const name = displayName.replace(/["<>\r\n\\]/g, '').trim().slice(0, 70);
+  return name ? `"${name}" <${address}>` : raw;
 }

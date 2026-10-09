@@ -8,6 +8,8 @@ import { ConfirmDeleteButton } from '@/components/ui/confirm-delete-button';
 import { deleteStaffAccount } from '@/lib/people/actions';
 import { deleteParticipantAccount } from '@/lib/participants/actions';
 import type { ECUserRole } from '@/lib/church/types';
+import { listPendingInvites } from '@/lib/invites/queries';
+import { PendingInvites } from '@/components/invites/pending-invites';
 
 interface Profile {
   id: string;
@@ -34,6 +36,8 @@ interface ParticipantRow {
   status: string;
   campus_id: string | null;
   profile_id: string | null;
+  joined_as: 'guest' | 'member';
+  member_confirmed_at: string | null;
 }
 
 interface CampusRow {
@@ -67,7 +71,7 @@ export default async function PeoplePage() {
         .order('first_name')
     : Promise.resolve({ data: [] });
 
-  const [profilesResult, connectorsResult, participantsResult, campusesResult] = await Promise.all([
+  const [profilesResult, connectorsResult, participantsResult, campusesResult, invites] = await Promise.all([
     profilesQ,
     supabase
       .from('connectors')
@@ -75,7 +79,7 @@ export default async function PeoplePage() {
     churchId
       ? supabase
           .from('participants')
-          .select('id, first_name, last_name, email, status, campus_id, profile_id')
+          .select('id, first_name, last_name, email, status, campus_id, profile_id, joined_as, member_confirmed_at')
           .eq('church_id', churchId)
           .order('last_action_at', { ascending: false, nullsFirst: false })
           .limit(200)
@@ -87,6 +91,7 @@ export default async function PeoplePage() {
           .eq('church_id', churchId)
           .order('name')
       : Promise.resolve({ data: [] }),
+    churchId && canManageConnectors ? listPendingInvites(churchId) : Promise.resolve([]),
   ]);
 
   const profiles = (profilesResult.data ?? []) as Profile[];
@@ -137,15 +142,22 @@ export default async function PeoplePage() {
             Everyone connected to your church — admins, connectors, and participants.
           </p>
         </div>
-        {canManage && (
-          <Link href="/people/invite">
-            <Button>
-              <UserPlus className="h-4 w-4" />
-              Invite staff
-            </Button>
-          </Link>
+        {canManageConnectors && (
+          <div className="flex flex-wrap gap-2">
+            <Link href="/people/import">
+              <Button variant="outline">Import people</Button>
+            </Link>
+            <Link href="/people/invite">
+              <Button>
+                <UserPlus className="h-4 w-4" />
+                Invite someone
+              </Button>
+            </Link>
+          </div>
         )}
       </div>
+
+      <PendingInvites invites={invites} canManageStaff={canManage} />
 
       <Section
         icon={<ShieldCheck className="h-4 w-4" />}
@@ -277,8 +289,16 @@ export default async function PeoplePage() {
             campus={campusName(p.campus_id)}
             badges={
               <>
-                <Badge tone={ROLE_TONE.participant}>Participant</Badge>
-                {p.status === 'completed' ? (
+                {p.joined_as === 'member' ? (
+                  p.member_confirmed_at ? (
+                    <Badge tone="info">Member</Badge>
+                  ) : (
+                    <Badge tone="warning">Says they belong</Badge>
+                  )
+                ) : (
+                  <Badge tone={ROLE_TONE.participant}>Guest</Badge>
+                )}
+                {p.joined_as === 'member' ? null : p.status === 'completed' ? (
                   <Badge tone="success" className="gap-1">
                     <CheckCircle2 className="h-3 w-3" />
                     Journey complete

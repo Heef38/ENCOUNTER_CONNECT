@@ -248,6 +248,7 @@ export async function enqueueWeeklyDigests(admin: SupabaseClient, now = new Date
       s.buckets.needs_contact.length === 0 &&
       s.buckets.unassigned.length === 0 &&
       s.buckets.stalled.length === 0 &&
+      s.buckets.confirm_member.length === 0 &&
       events.length === 0 &&
       (reported ?? 0) === 0;
 
@@ -282,6 +283,9 @@ export async function enqueueWeeklyDigests(admin: SupabaseClient, now = new Date
       if (s.buckets.unassigned.length) parts.push(`No connector yet: ${s.buckets.unassigned.length}.`);
       if (s.buckets.stalled.length) parts.push(`Gone quiet for two weeks: ${s.buckets.stalled.length}.`);
       if (s.buckets.needs_table.length) parts.push(`Not at a table yet: ${s.buckets.needs_table.length}.`);
+      if (s.buckets.confirm_member.length) {
+        parts.push(`Joined saying they already belong, waiting for you to confirm: ${s.buckets.confirm_member.length}. ${siteUrl()}/participants?flag=confirm_member`);
+      }
       if (events.length) {
         parts.push(
           `This week's gatherings (${events.length}):\n` +

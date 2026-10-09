@@ -11,8 +11,8 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
  * this, so they can never disagree about who is stuck.
  */
 
-export type Stage = 'new' | 'contacted' | 'met' | 'plugged_in' | 'serving' | 'inactive';
-export type Flag = 'needs_contact' | 'unassigned' | 'stalled' | 'needs_table';
+export type Stage = 'new' | 'contacted' | 'met' | 'plugged_in' | 'serving' | 'inactive' | 'member';
+export type Flag = 'needs_contact' | 'unassigned' | 'stalled' | 'needs_table' | 'confirm_member';
 
 export const STAGES: Array<{ key: Stage; label: string; hint: string }> = [
   { key: 'new', label: 'New', hint: 'Nobody has reached out yet' },
@@ -21,13 +21,19 @@ export const STAGES: Array<{ key: Stage; label: string; hint: string }> = [
   { key: 'plugged_in', label: 'At a table', hint: 'In a group, or coming to gatherings' },
   { key: 'serving', label: 'Serving', hint: 'On a serve team' },
   { key: 'inactive', label: 'Inactive', hint: 'Marked inactive' },
+  // Not a newcomer stage: people who already belonged (migration 035).
+  { key: 'member', label: 'Member', hint: 'Already belonged here when they joined' },
 ];
+
+/** The stages a newcomer moves through; members sit outside them. */
+export const NEWCOMER_STAGES: Stage[] = ['new', 'contacted', 'met', 'plugged_in', 'serving'];
 
 export const FLAGS: Record<Flag, { label: string; tone: 'danger' | 'warning' | 'info' }> = {
   needs_contact: { label: 'Not contacted yet', tone: 'danger' },
   unassigned: { label: 'No connector', tone: 'warning' },
   stalled: { label: 'Gone quiet', tone: 'warning' },
   needs_table: { label: 'Not at a table yet', tone: 'info' },
+  confirm_member: { label: 'Says they belong', tone: 'info' },
 };
 
 export interface PipelineRow {
@@ -134,15 +140,22 @@ export async function getPipeline(
 
 export function summarize(rows: PipelineRow[]) {
   const counts = Object.fromEntries(STAGES.map((s) => [s.key, 0])) as Record<Stage, number>;
-  const buckets: Record<Flag, PipelineRow[]> = { needs_contact: [], unassigned: [], stalled: [], needs_table: [] };
+  const buckets: Record<Flag, PipelineRow[]> = {
+    needs_contact: [],
+    unassigned: [],
+    stalled: [],
+    needs_table: [],
+    confirm_member: [],
+  };
   for (const r of rows) {
     counts[r.stage] += 1;
     for (const f of r.flags) buckets[f]?.push(r);
   }
   // Longest-waiting first.
   for (const list of Object.values(buckets)) list.sort((a, b) => b.days_since_signup - a.days_since_signup);
-  const newThisWeek = rows.filter((r) => r.days_since_signup < 7).length;
-  return { counts, buckets, newThisWeek, total: rows.length };
+  const newcomers = rows.filter((r) => r.stage !== 'member');
+  const newThisWeek = newcomers.filter((r) => r.days_since_signup < 7).length;
+  return { counts, buckets, newThisWeek, total: newcomers.length };
 }
 
 export interface TouchRow {

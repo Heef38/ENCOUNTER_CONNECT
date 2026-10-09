@@ -29,6 +29,7 @@ const KNOWN_KEYS = [
   { key: 'admin_weekly_digest',                hint: 'The Monday email to admins. Vars: {{headline}}, {{digest_body}}, {{dashboard_url}}, {{connect_name}}.' },
   { key: 'connector_contact_nudge',            hint: 'Sent to a connector when someone assigned to them has waited too long. Vars: {{participant_name}}, {{days_waiting}}, {{participant_url}}.' },
   { key: 'admin_contact_escalation',           hint: 'Sent to campus admins when a connector has not acted after the nudge, or nobody is assigned. Vars: {{participant_name}}, {{days_waiting}}, {{escalation_reason}}, {{participant_url}}.' },
+  { key: 'church_invite',                      hint: 'The invite email for new staff and members. Always sent by email. Vars: {{first_name}}, {{inviter}}, {{role_phrase}}, {{expires_on}}, {{invite_link}} (required; added at the end if missing).' },
   { key: 'event_message_to_host',              hint: 'Relays a member\'s message to a gathering\'s host. Vars: {{sender_name}}, {{sender_email}}, {{message}}, {{event_title}}, {{event_when}}.' },
 ];
 

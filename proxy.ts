@@ -11,7 +11,7 @@ const PUBLIC_PATHS = ['/', '/auth/callback', '/signup', '/privacy', '/terms'];
 // Path prefixes that anonymous visitors may reach. A page under one of these
 // still decides for itself what an anonymous visitor sees: /hub/e/<id> shows
 // public gatherings only, and /hub/e/<id>/edit requires a session.
-const PUBLIC_PREFIXES = ['/_next', '/auth', '/c/', '/hub/e/'];
+const PUBLIC_PREFIXES = ['/_next', '/auth', '/c/', '/hub/e/', '/invite/'];
 
 /** `/c/<slug>` and `/c/<slug>/<campus>` — the public per-church pages. */
 const CHURCH_SLUG_PATH = /^\/c\/([^/]+)/;

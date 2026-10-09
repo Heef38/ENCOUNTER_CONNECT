@@ -2,12 +2,13 @@ import Link from 'next/link';
 import { CalendarDays, HeartHandshake, MapPin, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { FLAGS, STAGES, type Flag, type PipelineRow, type Stage } from '@/lib/connect/pipeline';
+import { FLAGS, NEWCOMER_STAGES, STAGES, type Flag, type PipelineRow, type Stage } from '@/lib/connect/pipeline';
 import type { PersonMoment } from '@/lib/connect/celebrate';
 import type { CalendarEvent } from '@/lib/dashboard/queries';
 import type { ViewerEvent } from '@/lib/events/types';
 import { formatShortDateTimeInZone } from '@/lib/time/zoned';
 import { IntroduceToGroup } from './introduce-to-group';
+import { MembershipControls } from './membership';
 
 /**
  * The panes of the This week console. Server components: they render what
@@ -23,7 +24,7 @@ export function StagePills({ counts, newThisWeek }: { counts: Record<Stage, numb
           <div className="text-xs text-foreground-muted">New this week</div>
         </CardContent>
       </Card>
-      {STAGES.filter((s) => s.key !== 'inactive').map((s) => (
+      {STAGES.filter((s) => NEWCOMER_STAGES.includes(s.key)).map((s) => (
         <Link key={s.key} href={`/participants?stage=${s.key}`}>
           <Card className="h-full transition-colors hover:border-border-strong">
             <CardContent className="p-4">
@@ -44,16 +45,20 @@ const BUCKET_COPY: Record<Flag, string> = {
   unassigned: 'No connector yet.',
   stalled: 'Contacted or met, then quiet for two weeks.',
   needs_table: 'Not in a group or at a gathering yet.',
+  confirm_member: 'Joined saying they already belong here. Confirm them, or welcome them as new.',
 };
 
 export function AttentionBuckets({
   buckets,
   groups,
+  canConfirm = false,
 }: {
   buckets: Record<Flag, PipelineRow[]>;
   groups: Array<{ id: string; name: string }>;
+  /** Campus admins and up confirm members. */
+  canConfirm?: boolean;
 }) {
-  const order: Flag[] = ['needs_contact', 'unassigned', 'stalled', 'needs_table'];
+  const order: Flag[] = ['needs_contact', 'unassigned', 'stalled', 'needs_table', 'confirm_member'];
   const empty = order.every((f) => buckets[f].length === 0);
   if (empty) {
     return (
@@ -89,6 +94,9 @@ export function AttentionBuckets({
                     <span className="flex items-center gap-2 text-xs text-foreground-subtle">
                       {p.days_since_signup}d since signup
                       {p.connector_name ? ` · ${p.connector_name}` : ''}
+                      {flag === 'confirm_member' && canConfirm && (
+                        <MembershipControls participantId={p.participant_id} joinedAs="member" confirmed={false} compact />
+                      )}
                       {flag === 'needs_table' && p.profile_id && groups.length > 0 && (
                         <IntroduceToGroup participantId={p.participant_id} groups={groups} />
                       )}
