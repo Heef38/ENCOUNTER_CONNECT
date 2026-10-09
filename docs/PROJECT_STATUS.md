@@ -1,6 +1,62 @@
 # Encounter Connect — Project Status
 
-**Last updated:** 2026-05-27
+**Last updated:** 2026-10-08
+
+## The October 2026 rethink build (branch `rethink/build`)
+
+The plan is `docs/rethink-2026-10.md` (§10 has a build-status block). Slices 0 to 3
+are built on the branch and tested. **Nothing below is applied to production yet.**
+
+### Production apply order
+
+Production is at migration 025. Apply in this order, checking each:
+
+1. **029_lock_profile_privileges.sql, first and soon.** Today any signed-up user can
+   make themselves a church or platform admin through the API. 029 stands alone.
+2. 026_groups.sql, 027_events.sql, 028_profile_sms_consent.sql (revised in place;
+   never applied anywhere).
+3. 030_api_grants.sql (before 2026-10-30, when Supabase stops granting new tables to the
+   API roles by default).
+4. 031_tenant_safety.sql, 032_church_settings_and_gathering_safety.sql, 033_places.sql,
+   034_connect_ministry.sql, 035_invites_and_members.sql.
+
+Run `npm test` before each apply: it runs every migration on PGlite and asserts the
+privilege, isolation and visibility rules (the same suite CI runs).
+
+### What each migration does
+
+| Migration | What it does |
+|---|---|
+| 026 | Groups, rosters, youth groups, the member directory |
+| 027 | Gatherings: venues, addresses behind a policy, RSVPs, check-in, reports |
+| 028 | Profile SMS consent |
+| 029 | Locks profile privileges: no self-promotion, role changes only by an admin of the church |
+| 030 | Least-privilege grants for the API roles |
+| 031 | Church-scopes SchedulingCore reads and writes; host standing (trusted, blocked) |
+| 032 | Church settings, connect names, gathering and audience guards |
+| 033 | Campus places and map pins; homes snap to their campus |
+| 034 | Contact log, the derived pipeline, Learn, hosting rule v3 |
+| 035 | Members vs guests, invites, hosting rule v4, test-tenant flag, agreement, STOP/START |
+
+### Configuration this work adds
+
+| Setting | Needed | Notes |
+|---|---|---|
+| `INVITE_SIGNING_SECRET` | Optional | Signs invite links. Without it, a key derived from the service role key is used, and rotating that key voids open invites. |
+| Twilio "A message comes in" webhook | Recommended | `POST <site>/api/twilio/inbound`, so STOP and START replies update consent. `TWILIO_WEBHOOK_URL` overrides the URL used to check Twilio's signature. |
+| `TEST_USER_PASSWORD` | For test data | 12+ characters; test accounts live in the production database. |
+
+### Open items
+
+- SchedulingCore's server actions in `app/scheduling/actions.ts` run with the service
+  role and no checks of their own; the proxy is their only gate. Changing them needs the
+  founder's go-ahead.
+- Staff texts go out without a consent check, as before this work.
+- First-public-gathering approval is a setting only.
+- No screen yet lets staff mark a journey step done for someone.
+- Docker Desktop WSL integration is still off, so `supabase db reset` cannot run locally.
+
+---
 
 > The phase-by-phase history below (Phases 1–5) dates from the initial
 > SchedulingCore → EC build. Everything since — auth, multi-tenancy,

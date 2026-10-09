@@ -6,7 +6,7 @@ import {
 } from '@/lib/church/public-church-cookie';
 
 // Paths that anonymous visitors are always allowed to reach.
-const PUBLIC_PATHS = ['/', '/auth/callback', '/signup', '/privacy', '/terms'];
+const PUBLIC_PATHS = ['/', '/auth/callback', '/signup', '/privacy', '/terms', '/church-agreement', '/robots.txt', '/sitemap.xml'];
 
 // Path prefixes that anonymous visitors may reach. A page under one of these
 // still decides for itself what an anonymous visitor sees: /hub/e/<id> shows

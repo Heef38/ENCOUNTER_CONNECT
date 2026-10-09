@@ -21,6 +21,9 @@ import {
   WeekMeetings,
 } from '@/components/connect/this-week';
 import { clockInZone, yearMonthInZone } from '@/lib/time/zoned';
+import { gettingStarted } from '@/lib/church/getting-started';
+import { GettingStarted } from '@/components/connect/getting-started';
+import { siteUrl } from '@/lib/site';
 
 /**
  * This week: is our connect ministry on track? The admin's home and the
@@ -90,6 +93,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     ]);
 
   const summary = summarize(pipeline);
+  const isChurchAdmin = session.profile?.role === 'church_admin' || Boolean(session.profile?.is_platform_admin);
+  const startSteps = church && isChurchAdmin ? await gettingStarted(church) : [];
+  const publicUrl = church?.slug ? `${siteUrl()}/c/${church.slug}` : null;
   const greetingName = ctx.session.profile?.first_name || ctx.session.email;
   const tableGroups = groups.filter((g) => g.kind !== 'roster' && !g.is_youth && g.is_active).map((g) => ({ id: g.id, name: g.name }));
 
@@ -125,6 +131,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         )}
       </div>
+
+      {startSteps.length > 0 && <GettingStarted steps={startSteps} publicUrl={publicUrl} />}
 
       {churchId && (
         <section className="space-y-4">

@@ -7,6 +7,9 @@
 
 export const TEST_CHURCH_SLUG = 'test-church';
 export const TEST_CAMPUS_SLUG = 'test-campus';
+/** A second test tenant, for rehearsing that churches never see each other. */
+export const TEST_CHURCH_2_SLUG = 'test-church-two';
+export const TEST_CAMPUS_2_SLUG = 'test-two-campus';
 export const TEST_EMAIL_DOMAIN = 'test.local';
 /**
  * Test accounts sign in with the password in TEST_USER_PASSWORD (at least
@@ -23,7 +26,11 @@ export interface TestUserSpec {
     | 'connector_2'
     | 'participant_new'
     | 'participant_mid'
-    | 'participant_done';
+    | 'participant_done'
+    | 'member'
+    | 'member_claimed'
+    | 'other_admin'
+    | 'other_member';
   email: string;
   firstName: string;
   lastName: string;
@@ -34,6 +41,10 @@ export interface TestUserSpec {
   isParticipant: boolean;
   /** Journey state: only applies to participants. */
   journey?: 'none' | 'mid' | 'done';
+  /** How a participant came in: a confirmed member, or one who says they belong. */
+  membership?: 'member' | 'claimed';
+  /** The second test church instead of the first. */
+  tenant?: 'second';
   /** Human-readable label for the UI. */
   label: string;
 }
@@ -111,5 +122,50 @@ export const TEST_USERS: TestUserSpec[] = [
     isParticipant: true,
     journey: 'done',
     label: 'Participant — every step completed',
+  },
+  {
+    key: 'member',
+    email: `member@${TEST_EMAIL_DOMAIN}`,
+    firstName: 'Mary',
+    lastName: 'Member',
+    role: 'participant',
+    isConnector: false,
+    isParticipant: true,
+    membership: 'member',
+    label: 'Member — already belonged, confirmed, in a home group, hosts the Tuesday group',
+  },
+  {
+    key: 'member_claimed',
+    email: `member-claimed@${TEST_EMAIL_DOMAIN}`,
+    firstName: 'Sam',
+    lastName: 'Says',
+    role: 'participant',
+    isConnector: false,
+    isParticipant: true,
+    membership: 'claimed',
+    label: 'Member — said "I already belong", waiting for an admin to confirm',
+  },
+  {
+    key: 'other_admin',
+    email: `other-admin@${TEST_EMAIL_DOMAIN}`,
+    firstName: 'Olive',
+    lastName: 'OtherChurch',
+    role: 'church_admin',
+    isConnector: false,
+    isParticipant: false,
+    tenant: 'second',
+    label: 'Church admin at Test Church Two — must never see Test Church',
+  },
+  {
+    key: 'other_member',
+    email: `other-member@${TEST_EMAIL_DOMAIN}`,
+    firstName: 'Oscar',
+    lastName: 'OtherChurch',
+    role: 'participant',
+    isConnector: false,
+    isParticipant: true,
+    membership: 'member',
+    tenant: 'second',
+    label: 'Member at Test Church Two',
   },
 ];

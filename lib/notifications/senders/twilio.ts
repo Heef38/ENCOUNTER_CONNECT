@@ -16,7 +16,12 @@ export interface SendResult {
   ok: boolean;
   error?: string;
   providerId?: string;
+  /** Twilio's error code, e.g. 21610 when the recipient replied STOP. */
+  code?: number;
 }
+
+/** Twilio: "Attempt to send to unsubscribed recipient". */
+export const TWILIO_UNSUBSCRIBED = 21610;
 
 /**
  * Sends an SMS via Twilio's REST API. Uses HTTP basic auth with the
@@ -71,7 +76,7 @@ export async function sendSms(args: SendSmsArgs): Promise<SendResult> {
   if (!response.ok) {
     const obj = payload as { message?: string; code?: number } | null;
     const msg = obj?.message ?? `Twilio HTTP ${response.status}`;
-    return { ok: false, error: msg };
+    return { ok: false, error: msg, code: obj?.code };
   }
 
   const ok = payload as { sid?: string } | null;

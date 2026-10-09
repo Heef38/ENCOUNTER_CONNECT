@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { requireChurchAdmin, requirePlatformAdmin } from '@/lib/auth/dal';
 import { recordAudit } from '@/lib/audit/log';
+import { CHURCH_AGREEMENT_VERSION } from './agreement';
 
 export interface SettingsResult {
   ok: boolean;
@@ -83,6 +84,7 @@ export async function saveChurchSettings(_prev: SettingsResult | null, formData:
     .update({
       connect_name: connectName,
       description: text(formData, 'description'),
+      service_times: text(formData, 'service_times')?.slice(0, 500) ?? null,
       listed_on_map: formData.get('listed_on_map') === 'on',
     })
     .eq('id', churchId);
@@ -115,5 +117,32 @@ export async function setChurchVerified(churchId: string, verified: boolean): Pr
   if (error) return { ok: false, error: error.message };
   await recordAudit({ action: verified ? 'church.verified' : 'church.unverified', entity_type: 'church', entity_id: churchId });
   revalidatePath(`/platform/churches/${churchId}`);
+  return { ok: true };
+}
+
+/** A church admin accepts the church agreement for their church. */
+export async function acceptChurchAgreement(): Promise<SettingsResult> {
+  const session = await requireChurchAdmin();
+  const churchId = session.profile?.church_id;
+  if (!churchId) return { ok: false, error: 'No church context.' };
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('church_settings')
+    .update({
+      agreement_version: CHURCH_AGREEMENT_VERSION,
+      agreement_accepted_at: new Date().toISOString(),
+      agreement_accepted_by: session.id,
+    })
+    .eq('church_id', churchId)
+    .select('church_id');
+  if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: 'Only a church admin can accept the agreement.' };
+  await recordAudit({
+    action: 'church.agreement_accepted',
+    entity_type: 'church',
+    entity_id: churchId,
+    metadata: { version: CHURCH_AGREEMENT_VERSION },
+  });
+  revalidatePath('/settings/church');
   return { ok: true };
 }

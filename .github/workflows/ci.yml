@@ -1,0 +1,40 @@
+# The release gate (rethink §7.10): types, lint, and the database rules,
+# asserted against the real migrations on every push and pull request.
+#
+# The database suite runs the migrations in PGlite (Postgres compiled to
+# WebAssembly) with Supabase's API roles stubbed, so it needs no Docker and
+# no secrets. Vercel builds the app itself on every push.
+name: CI
+
+on:
+  push:
+    branches: [main, 'rethink/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19'
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      # SchedulingCore (app/scheduling, lib/scheduling) has two known lint
+      # findings and is changed only with explicit direction, so it is not
+      # part of this gate.
+      - name: Lint
+        run: npx eslint . --ignore-pattern 'app/scheduling/**' --ignore-pattern 'lib/scheduling/**'
+      - name: Database rules, visibility matrix and unit tests
+        run: npm test

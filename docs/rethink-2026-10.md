@@ -473,6 +473,32 @@ critics' honest estimate of the first synthesis was nineteen weeks for "phase 1"
 splits it so something reaches Encounter every two to four weeks, and separates **what
 Encounter needs now** from **what church #2 needs on day one**.
 
+> **Build status, 2026-10-08** (branch `rethink/build`). The founder's §12 answers are
+> applied. Slices 0 through 3 are built and tested; **nothing is applied to production
+> yet**. The prod order is 029 first (it closes a self-escalation hole that exists today),
+> then 026, 027, 028, 030, 031, 032, 033, 034, 035. See `docs/PROJECT_STATUS.md`.
+>
+> | Slice | Commit | State |
+> |---|---|---|
+> | 0 Ground | 090462a, bdf7b54 | Built. Migrations 029 (privilege lock), 030 (grants), 031 (tenant safety); proxy and API gates; signup guard. |
+> | 1 The spark | 73cb43e | Built. Groups, places and the map, lifecycle and review, connection primitives, notices, legal paragraphs. |
+> | 2 The admin's Monday | 1247a3e | Built. Contact log, derived stages, This week, nudges with campus-admin escalation (Q8), weekly digest, Learn, church settings. |
+> | 3 Church #2 readiness | 5b52606 and the next commit | Built: invites, member join path, CSV import, `/account`, public page polish, sitemap, agreement, export, texting opt-out, Getting started, test tenants, runbook, CI matrix. |
+>
+> Where the build departs from the tables below:
+> - **Tests** run on Node's built-in runner against the real migrations in PGlite
+>   (Postgres compiled to WebAssembly), not vitest and not a Supabase container. The same
+>   suite is the CI gate (`.github/workflows/ci.yml`), so items 5 and 26 need no Docker.
+>   Adopting `supabase db push` still needs the one-time migration repair against prod.
+> - **Members** (item 20): a self-declared member waits for an admin's confirmation, and
+>   only the confirmation gives standing (status `connected`). An admin-confirmed member who
+>   has done the host orientation can host, like someone whose first meeting is complete.
+> - **Groups CSV import** (item 20) is the Groups column of the people import.
+> - **The digest toggle** (item 16) lives in Church settings, with the digest day.
+> - **First-public-gathering approval** exists as a setting but is not enforced or shown.
+> - **STOP and START** are recorded through a signed Twilio webhook and when Twilio refuses
+>   a send to an unsubscribed number.
+
 ### Slice 0 — Ground (about 2 weeks; one precondition is the founder's)
 
 *Done when:* the hub work is on a branch and committed; migrations 001–028 run green on a

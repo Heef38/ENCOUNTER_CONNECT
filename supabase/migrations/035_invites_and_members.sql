@@ -310,3 +310,48 @@ ALTER TABLE church_settings
   ADD COLUMN agreement_version     TEXT CHECK (agreement_version IS NULL OR length(agreement_version) <= 40),
   ADD COLUMN agreement_accepted_at TIMESTAMPTZ,
   ADD COLUMN agreement_accepted_by UUID REFERENCES profiles(id) ON DELETE SET NULL;
+
+-- ── 6. Texting opt-out and opt-in from the phone itself ──────
+-- Replying STOP to any of the church's texts turns texts off for that
+-- number everywhere it is on file; START turns them back on (it is an
+-- explicit request for texts). Stored numbers are free text from forms,
+-- so they are compared on their last ten digits. Called by the signed
+-- Twilio webhook and by the outbox drain when Twilio reports an
+-- unsubscribed number; never by a session.
+CREATE OR REPLACE FUNCTION ec_sms_opt_change(from_phone TEXT, opted_in BOOLEAN, source TEXT)
+RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  d TEXT := right(regexp_replace(COALESCE(from_phone, ''), '\D', '', 'g'), 10);
+  changed INTEGER := 0;
+  n INTEGER;
+BEGIN
+  IF length(d) < 10 THEN
+    RETURN 0;
+  END IF;
+
+  UPDATE profiles
+     SET sms_consent_at = CASE WHEN opted_in THEN NOW() ELSE NULL END,
+         sms_consent_source = CASE WHEN opted_in THEN source ELSE NULL END
+   WHERE phone IS NOT NULL
+     AND right(regexp_replace(phone, '\D', '', 'g'), 10) = d
+     AND (sms_consent_at IS NULL) = opted_in;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  changed := changed + n;
+
+  UPDATE participants
+     SET sms_consent_at = CASE WHEN opted_in THEN NOW() ELSE NULL END,
+         sms_consent_source = CASE WHEN opted_in THEN source ELSE NULL END
+   WHERE phone IS NOT NULL
+     AND right(regexp_replace(phone, '\D', '', 'g'), 10) = d
+     AND (sms_consent_at IS NULL) = opted_in;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  changed := changed + n;
+
+  RETURN changed;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION ec_sms_opt_change(TEXT, BOOLEAN, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION ec_sms_opt_change(TEXT, BOOLEAN, TEXT) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION ec_sms_opt_change(TEXT, BOOLEAN, TEXT) TO service_role;

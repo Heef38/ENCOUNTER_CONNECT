@@ -141,3 +141,26 @@ test('the test church can never be verified or listed', async () => {
   const err = await errorOf(db.query(`UPDATE churches SET verified_at = now(), listed_on_map = true WHERE slug = 'test-church-2'`));
   assert.match(err ?? '', /churches_test_never_listed/);
 });
+
+test('replying STOP turns texts off for that number everywhere; START turns them back on', async () => {
+  await db.query(`UPDATE profiles SET phone = '(432) 555-0101', sms_consent_at = now() WHERE id = $1`, [w.member.id]);
+  await db.query(`UPDATE participants SET phone = '+1 432-555-0101', sms_consent_at = now() WHERE profile_id = $1`, [w.member.id]);
+
+  const err = await errorOf(as(db, w.member, (tx) => tx.query(`SELECT ec_sms_opt_change('+14325550101', false, 'sms_stop')`)));
+  assert.match(err ?? '', /permission denied/, 'only the server records an opt-out');
+
+  const off = await as(db, 'service', (tx) => tx.query<{ n: number }>(`SELECT ec_sms_opt_change('+14325550101', false, 'sms_stop') AS n`));
+  assert.equal(off.rows[0].n, 2, 'the profile and the church record, whatever their formatting');
+  // (as() rolls back; apply it for real to check the state.)
+  await db.query(`SELECT ec_sms_opt_change('+14325550101', false, 'sms_stop')`);
+  const after = await db.query<{ p: string | null; pa: string | null }>(
+    `SELECT (SELECT sms_consent_at::text FROM profiles WHERE id = $1) AS p,
+            (SELECT sms_consent_at::text FROM participants WHERE profile_id = $1) AS pa`, [w.member.id]);
+  assert.deepEqual(after.rows[0], { p: null, pa: null });
+
+  await db.query(`SELECT ec_sms_opt_change('4325550101', true, 'sms_start')`);
+  const back = await db.query<{ src: string }>(`SELECT sms_consent_source AS src FROM profiles WHERE id = $1`, [w.member.id]);
+  assert.equal(back.rows[0].src, 'sms_start');
+  const short = await db.query<{ n: number }>(`SELECT ec_sms_opt_change('12', false, 'sms_stop') AS n`);
+  assert.equal(short.rows[0].n, 0, 'a number too short to match changes nothing');
+});

@@ -116,9 +116,11 @@ export default async function PlatformTestDataPage() {
               <code className="rounded bg-surface-muted px-1 font-mono text-xs">
                 test-church
               </code>
-              ) with one campus.
+              ) with one pinned campus, and a second tenant,{' '}
+              <span className="font-medium text-foreground">Test Church Two</span>, with no journey. Both are marked as
+              test churches, so they can never be verified or listed on the map.
             </li>
-            <li>Seven auth users + profiles, one per role above.</li>
+            <li>{TEST_USERS.length} auth users + profiles, one per row above.</li>
             <li>
               Two{' '}
               <code className="rounded bg-surface-muted px-1 font-mono text-xs">
@@ -143,15 +145,25 @@ export default async function PlatformTestDataPage() {
               <span className="font-medium text-foreground">
                 participant-new
               </span>{' '}
-              has no progress yet.
+              has no progress yet and signed up nine days ago, so they show as not contacted.
+            </li>
+            <li>
+              A confirmed member who leads the Tuesday Home Group, and a member who said they belong and waits for
+              confirmation.
+            </li>
+            <li>
+              Groups (a home group, a serve team, a youth roster), a public prayer night at the campus, a private home
+              gathering whose address is held until people reply, RSVPs, a logged call, and a public gathering at Test
+              Church Two.
             </li>
           </ul>
           <p className="mt-3 text-xs text-foreground-subtle">
-            Wipe deletes the test church (cascade-removes campuses, flows,
-            connectors, participants) and every auth user on{' '}
+            Wipe deletes both test churches (cascade-removes campuses, flows,
+            connectors, participants, groups, gatherings) and every auth user on{' '}
             <code className="font-mono">@test.local</code>. Real tenants are
             untouched because the harness only ever writes to{' '}
-            <code className="font-mono">test-church</code>.
+            <code className="font-mono">test-church</code> and{' '}
+            <code className="font-mono">test-church-two</code>.
           </p>
         </CardContent>
       </Card>

@@ -14,7 +14,14 @@ export function ChurchSettingsForm({
   church,
   settings,
 }: {
-  church: { name: string; connect_name: string | null; description: string | null; listed_on_map: boolean; verified: boolean };
+  church: {
+    name: string;
+    connect_name: string | null;
+    description: string | null;
+    service_times: string | null;
+    listed_on_map: boolean;
+    verified: boolean;
+  };
   settings: ChurchSettings;
 }) {
   const [state, action, pending] = useActionState<SettingsResult | null, FormData>(saveChurchSettings, null);
@@ -35,6 +42,18 @@ export function ChurchSettingsForm({
           <div>
             <Label htmlFor="description">About your church (public page)</Label>
             <textarea id="description" name="description" defaultValue={church.description ?? ''} rows={3} className={select} />
+          </div>
+          <div>
+            <Label htmlFor="service_times">Service times (public page)</Label>
+            <textarea
+              id="service_times"
+              name="service_times"
+              defaultValue={church.service_times ?? ''}
+              rows={2}
+              maxLength={500}
+              placeholder="Sundays at 9:00 and 10:45 AM"
+              className={select}
+            />
           </div>
           <label className="flex items-start gap-2 text-sm text-foreground">
             <input type="checkbox" name="listed_on_map" defaultChecked={church.listed_on_map} className="mt-0.5" />
@@ -148,6 +167,17 @@ export function ChurchSettingsForm({
               </span>
             </label>
           </fieldset>
+          <details className="rounded-md border border-border bg-surface-muted/40 p-3 text-xs leading-relaxed text-foreground-muted">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">How texting works for your people</summary>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>Only people who gave a mobile number and agreed to texts get them. Everyone else gets email.</li>
+              <li>They get texts about their own meetings, gatherings they&apos;re part of, and their next steps. Never marketing.</li>
+              <li>Every text is signed with your connect name, so people know it&apos;s from you.</li>
+              <li>Replying STOP stops all texts from that number at once, and their account shows texts off. START turns them back on.</li>
+              <li>People can turn texts on or off themselves, on their account page.</li>
+              <li>The platform number is registered for church connection messages. Your own number needs its own registration first.</li>
+            </ul>
+          </details>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <Label htmlFor="sms_from_number">Our number</Label>

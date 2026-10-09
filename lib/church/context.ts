@@ -26,6 +26,8 @@ export interface ChurchSettings {
   sms_sender_mode: 'platform' | 'own';
   sms_from_number: string | null;
   sms_messaging_service_sid: string | null;
+  agreement_version: string | null;
+  agreement_accepted_at: string | null;
 }
 
 export const DEFAULT_CHURCH_SETTINGS: ChurchSettings = {
@@ -41,6 +43,8 @@ export const DEFAULT_CHURCH_SETTINGS: ChurchSettings = {
   sms_sender_mode: 'platform',
   sms_from_number: null,
   sms_messaging_service_sid: null,
+  agreement_version: null,
+  agreement_accepted_at: null,
 };
 
 export interface ChurchContext {

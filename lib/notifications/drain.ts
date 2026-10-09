@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { brandedFrom, sendEmail } from './senders/resend';
-import { sendSms } from './senders/twilio';
+import { sendSms, TWILIO_UNSUBSCRIBED } from './senders/twilio';
 import type { NotificationOutboxRow } from './types';
 import { connectName } from '@/lib/brand';
 import { INVITE_LINK_PLACEHOLDER, inviteLink } from '@/lib/invites/token';
@@ -215,6 +215,18 @@ export async function drainNotificationOutbox(
         body: row.body,
         ...sender,
       });
+
+      // They replied STOP at some point: record it, so nobody keeps
+      // queueing texts to them and their account shows texts off.
+      if (!result.ok && result.code === TWILIO_UNSUBSCRIBED) {
+        await admin.rpc('ec_sms_opt_change', { from_phone: row.recipient_phone, opted_in: false, source: 'sms_stop' });
+        await admin
+          .from('notification_outbox')
+          .update({ status: 'skipped', error: 'They replied STOP, so texts are off for this number.' })
+          .eq('id', row.id);
+        report.skipped += 1;
+        continue;
+      }
 
       if (result.ok) {
         await admin

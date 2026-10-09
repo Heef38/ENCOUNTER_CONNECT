@@ -242,6 +242,13 @@ export default function PrivacyPolicyPage() {
           obligations, resolve disputes, and enforce our agreements. You may request
           deletion of your account and associated data as described below.
         </p>
+        <p>
+          You can change your details or delete your account yourself, from your account page. Deleting your account
+          removes your login, cancels gatherings you were going to host, and takes your name and contact details off your
+          church&rsquo;s record of you. Your church keeps its records of its ministry with you, such as notes from
+          conversations, without your name and contact details. We keep a one-way fingerprint of your email address in our
+          audit log, so a person blocked from hosting cannot return under the same email unnoticed.
+        </p>
       </Section>
 
       <Section title="Security">

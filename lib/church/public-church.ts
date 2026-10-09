@@ -29,6 +29,11 @@ import type { Church } from './types';
  *
  * Anonymous visitors can't read `churches` through RLS, so this uses the
  * service-role client. It only ever returns public branding fields.
+ *
+ * Only churches the platform has verified, and never the test church, can
+ * be the front door's guess (rethink §7.1). An unverified church's own
+ * page at /c/<slug> still works for its people; it just isn't presented
+ * from the platform's front door until it is verified.
  */
 
 export { PUBLIC_CHURCH_COOKIE, publicChurchCookieOptions } from './public-church-cookie';
@@ -59,6 +64,8 @@ async function findBySlug(slug: string): Promise<PublicChurch | null> {
     .select(PUBLIC_CHURCH_FIELDS)
     .eq('slug', slug)
     .eq('is_active', true)
+    .eq('is_test', false)
+    .not('verified_at', 'is', null)
     .maybeSingle();
   return (data as PublicChurch | null) ?? null;
 }
@@ -79,6 +86,8 @@ export const resolvePublicChurch = cache(
       .from('churches')
       .select(PUBLIC_CHURCH_FIELDS)
       .eq('is_active', true)
+      .eq('is_test', false)
+      .not('verified_at', 'is', null)
       .not('slug', 'is', null)
       .limit(2);
 
@@ -121,6 +130,8 @@ export async function listPublicChurches(): Promise<PublicChurch[]> {
     .from('churches')
     .select(PUBLIC_CHURCH_FIELDS)
     .eq('is_active', true)
+    .eq('is_test', false)
+    .not('verified_at', 'is', null)
     .not('slug', 'is', null)
     .order('name');
   return (data as PublicChurch[] | null) ?? [];

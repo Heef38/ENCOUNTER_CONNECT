@@ -24,6 +24,8 @@ export default async function SignupChurchPickerPage() {
     .from('churches')
     .select('id, name, slug, description, logo_url')
     .eq('is_active', true)
+    .eq('is_test', false)
+    .not('verified_at', 'is', null)
     .not('slug', 'is', null)
     .order('name');
   const churches = (data ?? []) as ChurchRow[];
