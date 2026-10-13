@@ -17,9 +17,11 @@ const PUBLIC_PREFIXES = ['/_next', '/auth', '/c/', '/hub/e/', '/invite/'];
 const CHURCH_SLUG_PATH = /^\/c\/([^/]+)/;
 
 /**
- * SchedulingCore's own screens run on the service role with no checks of
- * their own (code under /app/scheduling is kept untouched), so the proxy is
- * their gate: church admins, campus admins and platform admins only.
+ * SchedulingCore's own screens run on the service role, so the proxy is
+ * their page gate: church admins, campus admins and platform admins only.
+ * Their server actions check the same again, plus church ownership, since
+ * a server action can be called from any page
+ * (lib/scheduling-api/action-guard.ts).
  * Connectors manage availability at /connector/availability; participants
  * book through their journey.
  */
