@@ -8,7 +8,7 @@ import { recordAudit } from '@/lib/audit/log';
 import { normalizePhone } from '@/lib/import/csv';
 import { enqueueEventCancelled } from '@/lib/notifications/events';
 import { siteUrl } from '@/lib/site';
-import { emailHash } from './email-hash';
+import { emailHash, phoneHash } from './email-hash';
 
 /**
  * A person's own account (rethink §7.9). They own their name, phone, email,
@@ -154,8 +154,8 @@ export async function deleteMyAccount(_prev: AccountResult | null, formData: For
     }
   }
 
-  // 2. The audit row keeps a hash of the email, so a blocked host who comes
-  //    back under the same email is noticed. Written before the account goes.
+  // 2. The audit row keeps hashes of the email and phone, so a blocked host
+  //    who comes back under either is noticed. Written before the account goes.
   await admin.from('audit_log').insert({
     church_id: profile?.church_id ?? null,
     actor_id: session.id,
@@ -165,6 +165,7 @@ export async function deleteMyAccount(_prev: AccountResult | null, formData: For
     entity_id: session.id,
     metadata: {
       email_sha256: email ? emailHash(email) : null,
+      phone_sha256: phoneHash(profile?.phone),
       was_blocked_host: Boolean(profile?.host_blocked_at),
       cancelled_gatherings: cancelled.length,
     },

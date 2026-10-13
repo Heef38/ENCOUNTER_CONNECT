@@ -5,7 +5,7 @@ import {
   createServiceRoleClient,
 } from '@/lib/supabase/server';
 import { recordAudit } from '@/lib/audit/log';
-import { emailHash } from '@/lib/account/email-hash';
+import { emailHash, phoneHash } from '@/lib/account/email-hash';
 import {
   initializeParticipantProgress,
   resolveDefaultFlowId,
@@ -225,23 +225,30 @@ export async function signUpParticipant(args: SignupArgs): Promise<SignupResult>
   }
 
   // A host who was blocked here, deleted their account and came back under
-  // the same email is still blocked, and the church sees why (§7.9).
+  // the same email or phone is still blocked, and the church sees why (§7.9).
+  // Phone catches more: people keep few spare numbers.
   try {
-    const { data: priorDeletion } = await admin
-      .from('audit_log')
-      .select('id')
-      .eq('church_id', args.churchId)
-      .eq('action', 'account.deleted')
-      .contains('metadata', { email_sha256: emailHash(email), was_blocked_host: true })
-      .limit(1);
-    if ((priorDeletion ?? []).length > 0) {
+    const signupPhoneHash = phoneHash(phone);
+    const matches = [{ email_sha256: emailHash(email) }, ...(signupPhoneHash ? [{ phone_sha256: signupPhoneHash }] : [])];
+    const priorDeletion: unknown[] = [];
+    for (const match of matches) {
+      const { data } = await admin
+        .from('audit_log')
+        .select('id')
+        .eq('church_id', args.churchId)
+        .eq('action', 'account.deleted')
+        .contains('metadata', { ...match, was_blocked_host: true })
+        .limit(1);
+      priorDeletion.push(...(data ?? []));
+    }
+    if (priorDeletion.length > 0) {
       await admin.from('profiles').update({ host_blocked_at: new Date().toISOString() }).eq('id', user.id);
       await admin.from('participant_touches').insert({
         participant_id: participantRow.id,
         church_id: args.churchId,
         kind: 'note',
         source: 'system',
-        summary: 'This email belonged to a host who was blocked here and then deleted their account. Hosting stays blocked until an admin lifts it.',
+        summary: 'This email or phone number belonged to a host who was blocked here and then deleted their account. Hosting stays blocked until an admin lifts it.',
       });
     }
   } catch {
